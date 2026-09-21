@@ -1,15 +1,10 @@
 <IfModule mod_rewrite.c>
     RewriteEngine On
 
-    # Peticiones a la API -> front controller PHP
-    RewriteCond %{REQUEST_URI} ^/api/
-    RewriteCond %{REQUEST_FILENAME} !-f
-    RewriteRule ^ index.php [L]
-
-    # Cualquier otra ruta que no sea un archivo/directorio real -> vista PHP de la SPA
+    # Cualquier peticion que no sea un archivo/directorio real -> front controller unico
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
-    RewriteRule ^ spa.php [L]
+    RewriteRule ^ index.php [L]
 </IfModule>
 
 # No exponer archivos sensibles servidos por error desde public/

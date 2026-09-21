@@ -1,5 +1,5 @@
 <?php
-// Front controller unico de la API. Sin namespaces, sin Composer.
+// Front controller unico de la app (API y paginas). Sin namespaces, sin Composer.
 
 require __DIR__ . '/../config/database.php';
 $config = require __DIR__ . '/../config/app.php';
@@ -16,4 +16,8 @@ iniciarSesion();
 $ruta = quitarRutaBase(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?: '/');
 $ruta = rtrim($ruta, '/') ?: '/';
 
-despacharRuta($_SERVER['REQUEST_METHOD'], $ruta);
+if (strpos($ruta, '/api') === 0) {
+    despacharRuta($_SERVER['REQUEST_METHOD'], $ruta);
+} else {
+    despacharPagina($ruta);
+}

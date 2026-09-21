@@ -218,9 +218,7 @@ function requiereRol($roles, $esApi = true) {
         if ($esApi) {
             responderError('No autorizado para este recurso.', 403);
         }
-        http_response_code(403);
-        echo 'No autorizado.';
-        exit;
+        redirect('/login');
     }
     return $usuario;
 }
@@ -262,4 +260,57 @@ function despacharRuta($metodo, $ruta) {
         responderError('Metodo no permitido.', 405);
     }
     responderError('Ruta no encontrada.', 404);
+}
+
+/**
+ * Recorre config/paginas.php, exige el rol si hace falta (modo pagina: si
+ * no hay sesion o el rol no coincide, redirige a /login en vez de dar 401/403
+ * en JSON), e invoca [Controlador, accion]().
+ */
+function despacharPagina($ruta) {
+    $tabla = require dirname(__DIR__, 2) . '/config/paginas.php';
+
+    if (!isset($tabla[$ruta])) {
+        http_response_code(404);
+        echo 'Pagina no encontrada.';
+        exit;
+    }
+
+    list($controlador, $accion, $roles) = $tabla[$ruta];
+    if (!empty($roles)) {
+        requiereRol($roles, false);
+    }
+
+    $instancia = new $controlador();
+    $instancia->$accion();
+}
+
+/**
+ * Sirve el bundle de React (public/index.html, compilado por Vite) inyectando
+ * window.__APP_BASE__ y window.__DATOS__ (usuario en sesion, rol, csrfToken,
+ * configuracion de la tienda) ANTES de los scripts. El componente montado es
+ * el mismo para toda la SPA, asi que el diseño no cambia entre paginas; lo
+ * unico que cambia es que datos ya vienen listos sin una llamada extra.
+ */
+function renderizarSpa($datos) {
+    $rutaIndex = dirname(__DIR__, 2) . '/public/index.html';
+    if (!is_file($rutaIndex)) {
+        http_response_code(500);
+        echo 'El frontend aun no ha sido compilado. Ejecuta: npm install && npm run build';
+        exit;
+    }
+
+    $html = file_get_contents($rutaIndex);
+
+    $datosJson = json_encode($datos, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    $baseJson = json_encode(rutaBase());
+    $inyeccion = "<script>window.__APP_BASE__=$baseJson;window.__DATOS__=$datosJson;</script>\n";
+    $html = preg_replace('#(<head[^>]*>)#i', '$1' . "\n" . $inyeccion, $html, 1);
+    if ($html === null) {
+        $html = $inyeccion . file_get_contents($rutaIndex);
+    }
+
+    header('Content-Type: text/html; charset=utf-8');
+    echo $html;
+    exit;
 }

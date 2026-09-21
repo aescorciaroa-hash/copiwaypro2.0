@@ -10,11 +10,6 @@
     # 1) Assets estaticos compilados por Vite (JS, CSS, fuentes, imagenes) -> servir tal cual
     RewriteRule ^assets/(.*)$ public/assets/$1 [L]
 
-    # 2) Peticiones a la API -> front controller PHP (REQUEST_URI original se
-    #    conserva para App\Core\Router / App\Core\BasePath)
-    RewriteRule ^api(/.*)?$ public/index.php [L]
-
-    # 3) Cualquier otra ruta (rutas de React Router: /admin, /client, /kitchen,
-    #    /delivery, /login, /register, /forgot-password) -> vista PHP de la SPA
-    RewriteRule ^ public/spa.php [L]
+    # 2) Todo lo demas (API y paginas) -> front controller unico
+    RewriteRule ^ public/index.php [L]
 </IfModule>
