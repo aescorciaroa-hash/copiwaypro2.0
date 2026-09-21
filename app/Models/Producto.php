@@ -62,26 +62,7 @@ class Producto {
 
     public function comoJson($fila) {
         $receta = $this->recetaDe($fila['id_producto']);
-
-        $etiqueta = $fila['etiqueta_destacada'];
-        if ($etiqueta === 'ninguna') {
-            $etiqueta = null;
-        }
-
-        return [
-            'id' => $fila['id_producto'],
-            'name' => $fila['nombre'],
-            'description' => $fila['descripcion'],
-            'price' => (float) $fila['precio'],
-            'active' => $fila['estado'] === 'activo',
-            'image' => $fila['imagen'],
-            'ingredients' => $receta['ingredientes'],
-            'packaging' => $receta['empaques'],
-            'category' => $fila['categoria_nombre'],
-            'prepTime' => $fila['tiempo_preparacion'] !== null ? (int) $fila['tiempo_preparacion'] : null,
-            'badge' => $etiqueta,
-            'costPrice' => $fila['costo_calculado'] !== null ? (float) $fila['costo_calculado'] : null,
-        ];
+        return producto_a_json($fila, $receta['ingredientes'], $receta['empaques']);
     }
 
     private function recetaDe($idProducto) {

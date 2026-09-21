@@ -46,14 +46,7 @@ class Personal {
     }
 
     public function comoJsonCocina($fila) {
-        return [
-            'id' => $fila['id_ayudante'],
-            'name' => $fila['nombre'],
-            'email' => $fila['correo'],
-            'phone' => $fila['telefono'],
-            'role' => 'Ayudante de cocina',
-            'active' => (bool) $fila['activo'],
-        ];
+        return personal_cocina_a_json($fila);
     }
 
     public function comoJsonDomicilio($fila) {
@@ -65,24 +58,7 @@ class Personal {
         $stmt->close();
         $currentOrderId = $pedido ? $pedido['id_pedido'] : null;
 
-        $ubicacion = null;
-        if ($fila['ubicacion_lat'] !== null && $fila['ubicacion_lng'] !== null) {
-            $ubicacion = [(float) $fila['ubicacion_lat'], (float) $fila['ubicacion_lng']];
-        }
-
-        return [
-            'id' => $fila['id_domiciliario'],
-            'name' => $fila['nombre'],
-            'email' => $fila['correo'],
-            'phone' => $fila['telefono'],
-            'role' => 'Domiciliario',
-            'active' => (bool) $fila['activo'],
-            'location' => $ubicacion,
-            'currentOrderId' => $currentOrderId,
-            'plate' => $fila['placa'],
-            'vehicle' => $fila['tipo_vehiculo'],
-            'baseCash' => (float) $fila['base_efectivo_asignada'],
-        ];
+        return personal_domicilio_a_json($fila, $currentOrderId);
     }
 
     /** Crea un miembro de staff en AYUDANTE_COCINA o DOMICILIARIO segun $datos['role']. */

@@ -44,14 +44,14 @@ class Ingrediente {
         $stmt = $this->consulta($this->base() . ' ORDER BY i.nombre ASC');
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        return array_map([$this, 'comoInventario'], $filas);
+        return array_map('ingrediente_a_inventario', $filas);
     }
 
     public function listarIngredientes() {
         $stmt = $this->consulta($this->base() . ' ORDER BY i.nombre ASC');
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        return array_map([$this, 'comoIngrediente'], $filas);
+        return array_map('ingrediente_a_catalogo', $filas);
     }
 
     public function buscar($id) {
@@ -61,33 +61,14 @@ class Ingrediente {
         return $fila ?: null;
     }
 
+    /** Usado directamente por InventoryController. */
     public function comoInventario($fila) {
-        return [
-            'id' => $fila['id_ingrediente'],
-            'name' => $fila['nombre'],
-            'stock' => (float) $fila['cantidad_stock'],
-            'totalCost' => $fila['costo_total'] !== null ? (float) $fila['costo_total'] : null,
-            'unitCost' => (float) $fila['costo_unitario'],
-            'unit' => $fila['unidad_medida'],
-            'category' => $fila['categoria_nombre'],
-            'supplier' => $fila['proveedor'],
-            'notes' => $fila['notas'],
-            'createdAt' => $fila['creado_en'],
-        ];
+        return ingrediente_a_inventario($fila);
     }
 
+    /** Usado directamente por IngredientController. */
     public function comoIngrediente($fila) {
-        $precio = (float) $fila['precio_extra'];
-        if ($precio <= 0) {
-            $precio = (float) $fila['costo_unitario'];
-        }
-        return [
-            'id' => $fila['id_ingrediente'],
-            'name' => $fila['nombre'],
-            'price' => $precio,
-            'category' => $fila['categoria_nombre'],
-            'stock' => (float) $fila['cantidad_stock'],
-        ];
+        return ingrediente_a_catalogo($fila);
     }
 
     /** Crea el insumo y, si trae stock inicial, registra el movimiento 'entrada'. */

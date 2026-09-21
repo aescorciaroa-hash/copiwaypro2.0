@@ -1,6 +1,17 @@
 <?php
 // Funciones de ayuda usadas en toda la app. Sin clases, sin namespaces.
 
+// Funciones puras "fila cruda -> JSON camelCase" usadas por los Models para dar
+// forma a la respuesta que espera el frontend. Sin clases, sin namespaces
+// (igual estilo que este archivo); se cargan aqui porque helpers.php es lo
+// primero que requieren todos los puntos de entrada (public/index.php, y
+// public/server-router.php que a su vez requiere index.php).
+require_once dirname(__DIR__) . '/Views/json/pedido.php';
+require_once dirname(__DIR__) . '/Views/json/ingrediente.php';
+require_once dirname(__DIR__) . '/Views/json/cliente.php';
+require_once dirname(__DIR__) . '/Views/json/producto.php';
+require_once dirname(__DIR__) . '/Views/json/personal.php';
+
 /**
  * Ruta base bajo la que corre la app (ej. '/copiwaypro'), para que las rutas
  * y el front de React funcionen igual en subcarpeta, servidor embebido o raiz.

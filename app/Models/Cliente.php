@@ -77,20 +77,13 @@ class Cliente {
         $lastOrderDate = $stmtUltimo->get_result()->fetch_assoc()['ultimo'] ?: null;
         $stmtUltimo->close();
 
-        return [
-            'id' => $fila['id_cliente'],
-            'name' => $fila['nombre'],
-            'phone' => $fila['telefono'],
-            'email' => $fila['correo'],
-            'address' => $fila['direccion'],
+        $datosCrudos = [
+            'fila' => $fila,
             'ordersCount' => $ordersCount,
-            'totalSpent' => (float) $fila['total_gastado'],
-            'points' => (int) $fila['puntos_fidelidad'],
             'lastOrderDate' => $lastOrderDate,
             'notifications' => $this->notificacionesDe($fila['id_cliente']),
-            'birthday' => $fila['fecha_nacimiento'],
-            'preferences' => null,
         ];
+        return cliente_a_json($datosCrudos);
     }
 
     public function notificacionesDe($idCliente) {
@@ -98,16 +91,7 @@ class Cliente {
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
 
-        return array_map(function ($n) {
-            return [
-                'id' => $n['id_notificacion_cliente'],
-                'title' => $n['titulo'],
-                'message' => $n['mensaje'],
-                'date' => $n['fecha'],
-                'read' => (bool) $n['leida'],
-                'type' => $n['tipo'],
-            ];
-        }, $filas);
+        return array_map('notificacion_a_json', $filas);
     }
 
     public function marcarNotificacionLeida($idCliente, $idNotificacion) {
