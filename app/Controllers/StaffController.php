@@ -1,89 +1,98 @@
 <?php
 
-namespace App\Controllers;
+class StaffController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Core\Validator;
-use App\Models\Staff;
-
-class StaffController extends Controller
-{
-    public function index(Request $request): void
-    {
-        $this->json(Staff::all());
+    private function entrada() {
+        $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $cuerpo = [];
+        if (!in_array($metodo, ['GET', 'HEAD'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+            if (stripos($contentType, 'application/json') !== false) {
+                $decodificado = json_decode(file_get_contents('php://input') ?: '[]', true);
+                $cuerpo = is_array($decodificado) ? $decodificado : [];
+            } else {
+                $cuerpo = $_POST;
+            }
+        }
+        return array_merge($_GET, $cuerpo);
     }
 
-    public function store(Request $request): void
-    {
-        $data = $request->all();
+    public function index() {
+        global $conn;
+        responderJson((new Personal($conn))->listar());
+    }
 
-        $validator = Validator::make($data)
-            ->required('name')
-            ->required('email')->email('email')
-            ->required('password')->minLength('password', 8)
-            ->required('role')->in('role', ['Ayudante de cocina', 'Domiciliario']);
+    public function store() {
+        global $conn;
+        $datos = $this->entrada();
 
-        if ($validator->fails()) {
-            $this->validationError($validator->errors());
+        $errores = [];
+        if (empty($datos['name'])) $errores['name'] = ['El campo name es obligatorio.'];
+        if (empty($datos['email']) || !filter_var($datos['email'], FILTER_VALIDATE_EMAIL)) $errores['email'] = ['El campo email debe ser un correo válido.'];
+        if (empty($datos['password']) || strlen((string) $datos['password']) < 8) $errores['password'] = ['El campo password debe tener al menos 8 caracteres.'];
+        if (empty($datos['role']) || !in_array($datos['role'], ['Ayudante de cocina', 'Domiciliario'])) $errores['role'] = ['El campo role no es válido.'];
+        if (!empty($errores)) {
+            responderError('Datos inválidos.', 422, $errores);
         }
+
+        $auth = new Autenticacion($conn);
+        $personalModelo = new Personal($conn);
 
         try {
-            $id = Staff::create($data, Auth::id());
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage(), 422);
+            $id = $personalModelo->crear($datos, $auth->idActual());
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 422);
         }
 
-        $all = Staff::all();
-        $created = array_values(array_filter($all, fn($s) => $s['id'] === $id));
-        $this->json($created[0] ?? ['id' => $id], 201);
+        $todos = $personalModelo->listar();
+        $creado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === $id; }));
+        responderJson($creado[0] ?? ['id' => $id], 201);
     }
 
-    public function update(Request $request, string $id): void
-    {
-        $table = Staff::update($id, $request->all());
-        if ($table === null) {
-            $this->error('Miembro de staff no encontrado.', 404);
+    public function update($id) {
+        global $conn;
+        $personalModelo = new Personal($conn);
+        $tabla = $personalModelo->actualizar($id, $this->entrada());
+        if ($tabla === null) {
+            responderError('Miembro de staff no encontrado.', 404);
         }
 
-        $all = Staff::all();
-        $updated = array_values(array_filter($all, fn($s) => $s['id'] === $id));
-        $this->json($updated[0] ?? ['id' => $id]);
+        $todos = $personalModelo->listar();
+        $actualizado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === $id; }));
+        responderJson($actualizado[0] ?? ['id' => $id]);
     }
 
-    public function destroy(Request $request, string $id): void
-    {
-        $table = Staff::softDelete($id);
-        if ($table === null) {
-            $this->error('Miembro de staff no encontrado.', 404);
+    public function destroy($id) {
+        global $conn;
+        $tabla = (new Personal($conn))->eliminarSuave($id);
+        if ($tabla === null) {
+            responderError('Miembro de staff no encontrado.', 404);
         }
-
-        $this->json(['ok' => true]);
+        responderJson(['ok' => true]);
     }
 
-    public function updateLocation(Request $request, string $id): void
-    {
-        if (!Auth::check() || Auth::role() !== 'delivery' || Auth::id() !== $id) {
-            $this->error('No autorizado para este recurso.', 403);
+    /** El domiciliario solo puede actualizar su propia ubicacion (extra al rol de la ruta). */
+    public function updateLocation($id) {
+        global $conn;
+        $auth = new Autenticacion($conn);
+
+        if (!$auth->haySesion() || $auth->rolActual() !== 'delivery' || $auth->idActual() !== $id) {
+            responderError('No autorizado para este recurso.', 403);
         }
 
-        $validator = Validator::make($request->all())
-            ->required('lat')->numeric('lat')
-            ->required('lng')->numeric('lng');
-
-        if ($validator->fails()) {
-            $this->validationError($validator->errors());
+        $datos = $this->entrada();
+        $errores = [];
+        if (!isset($datos['lat']) || !is_numeric($datos['lat'])) $errores['lat'] = ['El campo lat debe ser numérico.'];
+        if (!isset($datos['lng']) || !is_numeric($datos['lng'])) $errores['lng'] = ['El campo lng debe ser numérico.'];
+        if (!empty($errores)) {
+            responderError('Datos inválidos.', 422, $errores);
         }
 
-        $lat = (float) $request->input('lat');
-        $lng = (float) $request->input('lng');
-
-        $ok = Staff::updateLocation($id, $lat, $lng);
+        $ok = (new Personal($conn))->actualizarUbicacion($id, (float) $datos['lat'], (float) $datos['lng']);
         if (!$ok) {
-            $this->error('Domiciliario no encontrado.', 404);
+            responderError('Domiciliario no encontrado.', 404);
         }
 
-        $this->json(['ok' => true]);
+        responderJson(['ok' => true]);
     }
 }

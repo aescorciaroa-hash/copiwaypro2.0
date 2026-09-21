@@ -2,43 +2,35 @@
 
 /**
  * CLI para que el rol Programador cree el primer Administrador (y, de paso,
- * a sí mismo si aún no existe). Nunca se hace desde la web ni hay credenciales
- * hardcodeadas en el código — este script es la única puerta de entrada inicial.
+ * a si mismo si aun no existe). Nunca se hace desde la web ni hay credenciales
+ * hardcodeadas en el codigo — este script es la unica puerta de entrada inicial.
  *
- * Uso (desde la raíz del proyecto):
+ * Uso (desde la raiz del proyecto):
  *   php bin/create-admin.php
  */
 
-declare(strict_types=1);
+require __DIR__ . '/../config/database.php';
+require __DIR__ . '/../app/Models/Usuario.php';
 
-use App\Core\Database;
-use App\Core\Env;
-
-require __DIR__ . '/../vendor/autoload.php';
-Env::load(__DIR__ . '/..');
-
-function prompt(string $label, bool $hidden = false): string
-{
-    echo $label;
-    if ($hidden && PHP_OS_FAMILY !== 'Windows') {
+function prompt($etiqueta, $oculto = false) {
+    echo $etiqueta;
+    if ($oculto && PHP_OS_FAMILY !== 'Windows') {
         system('stty -echo');
-        $value = trim((string) fgets(STDIN));
+        $valor = trim((string) fgets(STDIN));
         system('stty echo');
         echo PHP_EOL;
     } else {
-        $value = trim((string) fgets(STDIN));
+        $valor = trim((string) fgets(STDIN));
     }
-    return $value;
+    return $valor;
 }
 
 echo "=== CopiwayPRO — Creación del primer Administrador (rol Programador) ===\n\n";
 
-$pdo = Database::connection();
+$usuarioModelo = new Usuario($conn);
 
-$programadorEmail = prompt('Correo del Programador (quien crea la cuenta): ');
-$programadorStmt = $pdo->prepare('SELECT * FROM ADMINISTRADOR WHERE correo = ?');
-$programadorStmt->execute([$programadorEmail]);
-$programador = $programadorStmt->fetch();
+$correoProgramador = prompt('Correo del Programador (quien crea la cuenta): ');
+$programador = $usuarioModelo->buscarPorCorreo($correoProgramador);
 
 if (!$programador) {
     echo "No existe un Programador con ese correo. Vamos a crearlo primero.\n";
@@ -51,14 +43,14 @@ if (!$programador) {
         exit(1);
     }
 
-    $stmt = $pdo->prepare(
-        "INSERT INTO ADMINISTRADOR (id_admin, nombre, correo, telefono, contrasena, nivel_acceso, creado_por)
-         VALUES ('', ?, ?, ?, ?, 'programador', NULL)"
-    );
-    $stmt->execute([$nombre, $programadorEmail, $telefono, password_hash($password, PASSWORD_BCRYPT)]);
-
-    $programadorStmt->execute([$programadorEmail]);
-    $programador = $programadorStmt->fetch();
+    $programador = $usuarioModelo->crear([
+        'nombre' => $nombre,
+        'correo' => $correoProgramador,
+        'telefono' => $telefono,
+        'password' => $password,
+        'nivel_acceso' => 'programador',
+        'creado_por' => null,
+    ]);
     echo "Programador creado.\n\n";
 }
 
@@ -73,17 +65,18 @@ if (strlen($passwordAdmin) < 8) {
     exit(1);
 }
 
-$checkStmt = $pdo->prepare('SELECT COUNT(*) FROM ADMINISTRADOR WHERE correo = ? OR telefono = ?');
-$checkStmt->execute([$correoAdmin, $telefonoAdmin]);
-if ((int) $checkStmt->fetchColumn() > 0) {
+if ($usuarioModelo->esUsado($correoAdmin, $telefonoAdmin)) {
     fwrite(STDERR, "Ya existe un administrador con ese correo o teléfono.\n");
     exit(1);
 }
 
-$stmt = $pdo->prepare(
-    "INSERT INTO ADMINISTRADOR (id_admin, nombre, correo, telefono, contrasena, nivel_acceso, creado_por)
-     VALUES ('', ?, ?, ?, ?, 'maestro', ?)"
-);
-$stmt->execute([$nombreAdmin, $correoAdmin, $telefonoAdmin, password_hash($passwordAdmin, PASSWORD_BCRYPT), $programador['id_admin']]);
+$usuarioModelo->crear([
+    'nombre' => $nombreAdmin,
+    'correo' => $correoAdmin,
+    'telefono' => $telefonoAdmin,
+    'password' => $passwordAdmin,
+    'nivel_acceso' => 'maestro',
+    'creado_por' => $programador['id_admin'],
+]);
 
 echo "\nAdministrador '{$nombreAdmin}' creado correctamente. Ya puede iniciar sesión en /login.\n";

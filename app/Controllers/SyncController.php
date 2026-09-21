@@ -1,64 +1,52 @@
 <?php
+// Sustituye los onSnapshot de Firestore por polling corto con ETag: el
+// frontend hace fetch cada 2-3s con If-None-Match; si nada cambio se responde
+// 304 (sin payload). El alcance de datos se filtra por rol.
 
-namespace App\Controllers;
+class SyncController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Core\Response;
-use App\Models\Client;
-use App\Models\Ingredient;
-use App\Models\Order;
-use App\Models\Product;
-use App\Models\Setting;
-use App\Models\Staff;
-
-/**
- * Sustituye los onSnapshot de Firestore (FirebaseSync.tsx) por polling corto con
- * ETag: el frontend hace fetch cada 2-3s con If-None-Match; si nada cambió se
- * responde 304 (sin payload). El alcance de datos se filtra por rol para no
- * exponer todo abiertamente como hacían las reglas de Firestore actuales.
- */
-class SyncController extends Controller
-{
-    public function index(Request $request): void
-    {
-        $role = Auth::check() ? Auth::role() : 'guest';
-        $userId = Auth::check() ? Auth::id() : null;
+    public function index() {
+        global $conn;
+        $auth = new Autenticacion($conn);
+        $rol = $auth->haySesion() ? $auth->rolActual() : 'guest';
+        $idUsuario = $auth->haySesion() ? $auth->idActual() : null;
 
         $payload = [
-            'products' => Product::all($role !== 'admin'),
-            'settings' => Setting::get(),
+            'products' => (new Producto($conn))->listar($rol !== 'admin'),
+            'settings' => (new Configuracion($conn))->obtener(),
         ];
 
-        if (in_array($role, ['admin', 'kitchen'], true)) {
-            $payload['inventory'] = Ingredient::allAsInventory();
-            $payload['ingredients'] = Ingredient::allAsIngredients();
-            $payload['staff'] = Staff::all();
-            $payload['orders'] = Order::forRole($role, $userId);
+        if (in_array($rol, ['admin', 'kitchen'])) {
+            $ingredienteModelo = new Ingrediente($conn);
+            $payload['inventory'] = $ingredienteModelo->listarInventario();
+            $payload['ingredients'] = $ingredienteModelo->listarIngredientes();
+            $payload['staff'] = (new Personal($conn))->listar();
+            $payload['orders'] = (new Pedido($conn))->porRol($rol, $idUsuario);
         }
 
-        if ($role === 'admin') {
-            $payload['clients'] = Client::all();
+        if ($rol === 'admin') {
+            $payload['clients'] = (new Cliente($conn))->listar();
         }
 
-        if ($role === 'delivery') {
-            $payload['orders'] = Order::forRole($role, $userId);
+        if ($rol === 'delivery') {
+            $payload['orders'] = (new Pedido($conn))->porRol($rol, $idUsuario);
         }
 
-        if ($role === 'client') {
-            $payload['orders'] = Order::forRole($role, $userId);
-            $payload['ingredients'] = Ingredient::allAsIngredients();
+        if ($rol === 'client') {
+            $payload['orders'] = (new Pedido($conn))->porRol($rol, $idUsuario);
+            $payload['ingredients'] = (new Ingrediente($conn))->listarIngredientes();
         }
 
         $etag = '"' . md5(json_encode($payload)) . '"';
-        $clientEtag = $request->header('If-None-Match');
+        $etagCliente = $_SERVER['HTTP_IF_NONE_MATCH'] ?? null;
 
-        if ($clientEtag === $etag) {
-            header("ETag: {$etag}");
-            Response::notModified();
+        if ($etagCliente === $etag) {
+            header("ETag: $etag");
+            http_response_code(304);
+            exit;
         }
 
-        Response::json($payload, 200, ['ETag' => $etag]);
+        header("ETag: $etag");
+        responderJson($payload, 200);
     }
 }

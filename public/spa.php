@@ -1,15 +1,9 @@
 <?php
 
-declare(strict_types=1);
+require __DIR__ . '/../config/database.php';
+require __DIR__ . '/../app/Core/helpers.php';
 
-use App\Core\BasePath;
-use App\Core\Env;
-
-$root = dirname(__DIR__);
-require $root . '/vendor/autoload.php';
-Env::load($root);
-
-$basePath = BasePath::detect();
+$basePath = rutaBase();
 
 $indexPath = __DIR__ . '/index.html';
 

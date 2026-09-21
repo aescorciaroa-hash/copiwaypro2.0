@@ -1,112 +1,121 @@
 <?php
+// Autenticacion para los 4 roles que inician sesion en la SPA (admin, kitchen,
+// delivery, client). El rol Programador no tiene login web: solo existe para
+// crear al primer Administrador via bin/create-admin.php.
 
-namespace App\Core;
+class Autenticacion {
 
-use PDO;
+    public $conn;
 
-/**
- * Autenticación unificada para los 4 roles que inician sesión desde la SPA
- * (admin, kitchen, delivery, client). El rol "Programador" no tiene dashboard
- * propio: solo existe para crear al primer Administrador vía CLI (bin/create-admin.php).
- */
-class Auth
-{
-    private const TABLES = [
-        'admin' => ['table' => 'ADMINISTRADOR', 'pk' => 'id_admin', 'active' => 'activo'],
-        'kitchen' => ['table' => 'AYUDANTE_COCINA', 'pk' => 'id_ayudante', 'active' => 'activo'],
-        'delivery' => ['table' => 'DOMICILIARIO', 'pk' => 'id_domiciliario', 'active' => 'activo'],
-        'client' => ['table' => 'CLIENTE', 'pk' => 'id_cliente', 'active' => 'activo'],
-    ];
-
-    public static function attempt(string $correo, string $password): ?array
-    {
-        $pdo = Database::connection();
-
-        foreach (self::TABLES as $role => $meta) {
-            $stmt = $pdo->prepare("SELECT * FROM {$meta['table']} WHERE correo = ? LIMIT 1");
-            $stmt->execute([$correo]);
-            $row = $stmt->fetch();
-
-            if (!$row) {
-                continue;
-            }
-
-            if (!password_verify($password, $row['contrasena'])) {
-                return null;
-            }
-
-            if (!$row[$meta['active']]) {
-                return null;
-            }
-
-            return self::login($role, $row);
-        }
-
-        return null;
+    public function __construct($conn) {
+        $this->conn = $conn;
     }
 
-    public static function login(string $role, array $row): array
-    {
-        $meta = self::TABLES[$role];
-        Session::regenerate();
-        Session::put('auth_role', $role);
-        Session::put('auth_id', $row[$meta['pk']]);
+    /** Tabla, llave primaria y columna de estado para cada rol que inicia sesion. */
+    private function tablasPorRol() {
         return [
-            'id' => $row[$meta['pk']],
-            'role' => $role,
-            'name' => $row['nombre'],
-            'email' => $row['correo'],
+            'admin' => ['tabla' => 'ADMINISTRADOR', 'pk' => 'id_admin'],
+            'kitchen' => ['tabla' => 'AYUDANTE_COCINA', 'pk' => 'id_ayudante'],
+            'delivery' => ['tabla' => 'DOMICILIARIO', 'pk' => 'id_domiciliario'],
+            'client' => ['tabla' => 'CLIENTE', 'pk' => 'id_cliente'],
         ];
     }
 
-    public static function check(): bool
-    {
-        return Session::has('auth_role') && Session::has('auth_id');
+    /** Intenta iniciar sesion probando las 4 tablas de cuentas. Devuelve el usuario o null. */
+    public function intentarLogin($correo, $clave) {
+        foreach ($this->tablasPorRol() as $rol => $info) {
+            $sql = "SELECT * FROM {$info['tabla']} WHERE correo = ? LIMIT 1";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param('s', $correo);
+            $stmt->execute();
+            $fila = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$fila) {
+                continue;
+            }
+
+            if (!password_verify($clave, $fila['contrasena'])) {
+                return null;
+            }
+            if (!$fila['activo']) {
+                return null;
+            }
+
+            return $this->iniciarSesionUsuario($rol, $fila);
+        }
+        return null;
     }
 
-    public static function role(): ?string
-    {
-        return Session::get('auth_role');
+    /** Guarda al usuario en sesion (con regeneracion de ID contra fijacion de sesion). */
+    public function iniciarSesionUsuario($rol, $fila) {
+        $info = $this->tablasPorRol()[$rol];
+        session_regenerate_id(true);
+        $_SESSION['usuario_id'] = $fila[$info['pk']];
+        $_SESSION['usuario_rol'] = $rol;
+
+        return [
+            'id' => $fila[$info['pk']],
+            'role' => $rol,
+            'name' => $fila['nombre'],
+            'email' => $fila['correo'],
+        ];
     }
 
-    public static function id(): ?string
-    {
-        return Session::get('auth_id');
+    public function haySesion() {
+        return isset($_SESSION['usuario_id'], $_SESSION['usuario_rol']);
     }
 
-    public static function isAdminMaestro(): bool
-    {
-        if (self::role() !== 'admin') {
+    public function rolActual() {
+        return $_SESSION['usuario_rol'] ?? null;
+    }
+
+    public function idActual() {
+        return $_SESSION['usuario_id'] ?? null;
+    }
+
+    /**
+     * Vuelve a leer al usuario desde la base de datos (no solo de sesion), para
+     * que una cuenta desactivada pierda el acceso de inmediato aunque ya tenga
+     * sesion abierta. Si ya no existe o esta inactiva, cierra la sesion.
+     */
+    public function usuarioActual() {
+        if (!$this->haySesion()) {
+            return null;
+        }
+
+        $info = $this->tablasPorRol()[$this->rolActual()];
+        $sql = "SELECT * FROM {$info['tabla']} WHERE {$info['pk']} = ? LIMIT 1";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param('s', $_SESSION['usuario_id']);
+        $stmt->execute();
+        $fila = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+
+        if (!$fila || !$fila['activo']) {
+            $this->cerrarSesion();
+            return null;
+        }
+
+        unset($fila['contrasena']);
+        $fila['role'] = $this->rolActual();
+        return $fila;
+    }
+
+    public function esAdminMaestro() {
+        if ($this->rolActual() !== 'admin') {
             return false;
         }
-        $pdo = Database::connection();
-        $stmt = $pdo->prepare('SELECT nivel_acceso FROM ADMINISTRADOR WHERE id_admin = ?');
-        $stmt->execute([self::id()]);
-        return $stmt->fetchColumn() !== false;
+        $stmt = $this->conn->prepare('SELECT nivel_acceso FROM ADMINISTRADOR WHERE id_admin = ?');
+        $stmt->bind_param('s', $_SESSION['usuario_id']);
+        $stmt->execute();
+        $fila = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        return $fila && $fila['nivel_acceso'] === 'maestro';
     }
 
-    public static function user(): ?array
-    {
-        if (!self::check()) {
-            return null;
-        }
-        $meta = self::TABLES[self::role()];
-        $pdo = Database::connection();
-        $stmt = $pdo->prepare("SELECT * FROM {$meta['table']} WHERE {$meta['pk']} = ? LIMIT 1");
-        $stmt->execute([self::id()]);
-        $row = $stmt->fetch();
-        if (!$row) {
-            return null;
-        }
-        unset($row['contrasena']);
-        $row['role'] = self::role();
-        return $row;
-    }
-
-    public static function logout(): void
-    {
-        Session::forget('auth_role');
-        Session::forget('auth_id');
-        Session::destroy();
+    public function cerrarSesion() {
+        unset($_SESSION['usuario_id'], $_SESSION['usuario_rol']);
+        cerrarSesionCompleta();
     }
 }

@@ -1,85 +1,96 @@
 <?php
 
-namespace App\Controllers;
+class ClientController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Models\Client;
-
-class ClientController extends Controller
-{
-    public function index(Request $request): void
-    {
-        $this->json(Client::all());
+    private function entrada() {
+        $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $cuerpo = [];
+        if (!in_array($metodo, ['GET', 'HEAD'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+            if (stripos($contentType, 'application/json') !== false) {
+                $decodificado = json_decode(file_get_contents('php://input') ?: '[]', true);
+                $cuerpo = is_array($decodificado) ? $decodificado : [];
+            } else {
+                $cuerpo = $_POST;
+            }
+        }
+        return array_merge($_GET, $cuerpo);
     }
 
-    public function show(Request $request, string $id): void
-    {
-        $this->authorizeSelfOrAdmin($id);
-
-        $client = Client::find($id);
-        if (!$client) {
-            $this->error('Cliente no encontrado.', 404);
-        }
-        $this->json($client);
+    public function index() {
+        global $conn;
+        responderJson((new Cliente($conn))->listar());
     }
 
-    public function update(Request $request, string $id): void
-    {
-        $this->authorizeSelfOrAdmin($id);
+    public function show($id) {
+        global $conn;
+        $this->autorizarPropioOAdmin($id);
 
-        if (!Client::find($id)) {
-            $this->error('Cliente no encontrado.', 404);
+        $cliente = (new Cliente($conn))->buscar($id);
+        if (!$cliente) {
+            responderError('Cliente no encontrado.', 404);
         }
-
-        $data = $request->all();
-
-        // Un cliente editando su propio perfil no puede tocar puntos/gasto total/pedidos;
-        // solo el admin puede modificar esos campos.
-        if (Auth::role() !== 'admin') {
-            $allowed = ['name', 'phone', 'address', 'birthday'];
-            $data = array_intersect_key($data, array_flip($allowed));
-        }
-
-        Client::update($id, $data);
-        $this->json(Client::find($id));
+        responderJson($cliente);
     }
 
-    public function notifications(Request $request, string $id): void
-    {
-        $this->authorizeSelfOrAdmin($id);
+    public function update($id) {
+        global $conn;
+        $this->autorizarPropioOAdmin($id);
 
-        if (!Client::find($id)) {
-            $this->error('Cliente no encontrado.', 404);
+        $clienteModelo = new Cliente($conn);
+        if (!$clienteModelo->buscar($id)) {
+            responderError('Cliente no encontrado.', 404);
         }
 
-        $this->json(Client::notificationsFor($id));
+        $datos = $this->entrada();
+
+        $auth = new Autenticacion($conn);
+        if ($auth->rolActual() !== 'admin') {
+            $permitidos = ['name', 'phone', 'address', 'birthday'];
+            $datos = array_intersect_key($datos, array_flip($permitidos));
+        }
+
+        $clienteModelo->actualizar($id, $datos);
+        responderJson($clienteModelo->buscar($id));
     }
 
-    public function markNotificationRead(Request $request, string $id, string $notifId): void
-    {
-        $this->authorizeSelfOrAdmin($id);
+    public function notifications($id) {
+        global $conn;
+        $this->autorizarPropioOAdmin($id);
 
-        $ok = Client::markNotificationRead($id, $notifId);
+        $clienteModelo = new Cliente($conn);
+        if (!$clienteModelo->buscar($id)) {
+            responderError('Cliente no encontrado.', 404);
+        }
+
+        responderJson($clienteModelo->notificacionesDe($id));
+    }
+
+    public function markNotificationRead($id, $notifId) {
+        global $conn;
+        $this->autorizarPropioOAdmin($id);
+
+        $ok = (new Cliente($conn))->marcarNotificacionLeida($id, $notifId);
         if (!$ok) {
-            $this->error('Notificación no encontrada.', 404);
+            responderError('Notificación no encontrada.', 404);
         }
 
-        $this->json(['ok' => true]);
+        responderJson(['ok' => true]);
     }
 
-    private function authorizeSelfOrAdmin(string $id): void
-    {
-        if (!Auth::check()) {
-            $this->error('No autenticado.', 401);
+    private function autorizarPropioOAdmin($id) {
+        global $conn;
+        $auth = new Autenticacion($conn);
+
+        if (!$auth->haySesion()) {
+            responderError('No autenticado.', 401);
         }
 
-        $isSelf = Auth::role() === 'client' && Auth::id() === $id;
-        $isAdmin = Auth::role() === 'admin';
+        $esPropio = $auth->rolActual() === 'client' && $auth->idActual() === $id;
+        $esAdmin = $auth->rolActual() === 'admin';
 
-        if (!$isSelf && !$isAdmin) {
-            $this->error('No autorizado para este recurso.', 403);
+        if (!$esPropio && !$esAdmin) {
+            responderError('No autorizado para este recurso.', 403);
         }
     }
 }

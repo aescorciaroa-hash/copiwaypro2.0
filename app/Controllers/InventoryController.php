@@ -1,82 +1,90 @@
 <?php
 
-namespace App\Controllers;
+class InventoryController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Core\Validator;
-use App\Models\Ingredient;
-
-class InventoryController extends Controller
-{
-    public function index(Request $request): void
-    {
-        $this->json(Ingredient::allAsInventory());
+    private function entrada() {
+        $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $cuerpo = [];
+        if (!in_array($metodo, ['GET', 'HEAD'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+            if (stripos($contentType, 'application/json') !== false) {
+                $decodificado = json_decode(file_get_contents('php://input') ?: '[]', true);
+                $cuerpo = is_array($decodificado) ? $decodificado : [];
+            } else {
+                $cuerpo = $_POST;
+            }
+        }
+        return array_merge($_GET, $cuerpo);
     }
 
-    public function store(Request $request): void
-    {
-        $data = $request->all();
-
-        $validator = Validator::make($data)
-            ->required('name')
-            ->required('category');
-
-        if ($validator->fails()) {
-            $this->validationError($validator->errors());
-        }
-
-        $id = Ingredient::createWithInitialStock($data, Auth::id());
-        $this->json(Ingredient::toInventoryItem(Ingredient::find($id)), 201);
+    public function index() {
+        global $conn;
+        responderJson((new Ingrediente($conn))->listarInventario());
     }
 
-    public function update(Request $request, string $id): void
-    {
-        if (!Ingredient::find($id)) {
-            $this->error('Insumo no encontrado.', 404);
+    public function store() {
+        global $conn;
+        $datos = $this->entrada();
+
+        $errores = [];
+        if (empty($datos['name'])) $errores['name'] = ['El campo name es obligatorio.'];
+        if (empty($datos['category'])) $errores['category'] = ['El campo category es obligatorio.'];
+        if (!empty($errores)) {
+            responderError('Datos inválidos.', 422, $errores);
         }
 
-        Ingredient::update($id, $request->all());
-        $this->json(Ingredient::toInventoryItem(Ingredient::find($id)));
+        $auth = new Autenticacion($conn);
+        $ingredienteModelo = new Ingrediente($conn);
+        $id = $ingredienteModelo->crearConStockInicial($datos, $auth->idActual());
+        responderJson($ingredienteModelo->comoInventario($ingredienteModelo->buscar($id)), 201);
     }
 
-    public function destroy(Request $request, string $id): void
-    {
-        if (!Ingredient::find($id)) {
-            $this->error('Insumo no encontrado.', 404);
+    public function update($id) {
+        global $conn;
+        $ingredienteModelo = new Ingrediente($conn);
+        if (!$ingredienteModelo->buscar($id)) {
+            responderError('Insumo no encontrado.', 404);
         }
 
-        Ingredient::delete($id);
-        $this->json(['ok' => true]);
+        $ingredienteModelo->actualizar($id, $this->entrada());
+        responderJson($ingredienteModelo->comoInventario($ingredienteModelo->buscar($id)));
     }
 
-    public function adjustStock(Request $request, string $id): void
-    {
-        if (!Ingredient::find($id)) {
-            $this->error('Insumo no encontrado.', 404);
+    public function destroy($id) {
+        global $conn;
+        $ingredienteModelo = new Ingrediente($conn);
+        if (!$ingredienteModelo->buscar($id)) {
+            responderError('Insumo no encontrado.', 404);
         }
 
-        $validator = Validator::make($request->all())
-            ->required('amount')->numeric('amount');
+        $ingredienteModelo->eliminar($id);
+        responderJson(['ok' => true]);
+    }
 
-        if ($validator->fails()) {
-            $this->validationError($validator->errors());
+    public function adjustStock($id) {
+        global $conn;
+        $ingredienteModelo = new Ingrediente($conn);
+        if (!$ingredienteModelo->buscar($id)) {
+            responderError('Insumo no encontrado.', 404);
         }
 
-        $amount = (float) $request->input('amount');
+        $datos = $this->entrada();
+        if (!isset($datos['amount']) || !is_numeric($datos['amount'])) {
+            responderError('Datos inválidos.', 422, ['amount' => ['El campo amount debe ser numérico.']]);
+        }
 
+        $auth = new Autenticacion($conn);
         try {
-            Ingredient::adjustStock($id, $amount, Auth::id());
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage(), 422);
+            $ingredienteModelo->ajustarStock($id, (float) $datos['amount'], $auth->idActual());
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 422);
         }
 
-        $this->json(Ingredient::toInventoryItem(Ingredient::find($id)));
+        responderJson($ingredienteModelo->comoInventario($ingredienteModelo->buscar($id)));
     }
 
-    public function logs(Request $request): void
-    {
-        $this->json(Ingredient::inventoryLogs());
+    public function logs() {
+        global $conn;
+        responderJson((new Ingrediente($conn))->registrosDeMovimientos());
     }
 }

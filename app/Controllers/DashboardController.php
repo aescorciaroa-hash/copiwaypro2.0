@@ -1,15 +1,9 @@
 <?php
 
-namespace App\Controllers;
+class DashboardController {
 
-use App\Core\Controller;
-use App\Core\Request;
-use App\Models\DashboardSummary;
-
-class DashboardController extends Controller
-{
-    public function summary(Request $request): void
-    {
-        $this->json(DashboardSummary::summaryForToday());
+    public function summary() {
+        global $conn;
+        responderJson((new Panel($conn))->resumenDeHoy());
     }
 }

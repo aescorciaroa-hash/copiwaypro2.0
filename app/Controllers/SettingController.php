@@ -1,43 +1,56 @@
 <?php
 
-namespace App\Controllers;
+class SettingController {
 
-use App\Core\Controller;
-use App\Core\Request;
-use App\Models\Setting;
-
-class SettingController extends Controller
-{
-    public function show(Request $request): void
-    {
-        $this->json(Setting::get());
+    private function entrada() {
+        $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $cuerpo = [];
+        if (!in_array($metodo, ['GET', 'HEAD'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+            if (stripos($contentType, 'application/json') !== false) {
+                $decodificado = json_decode(file_get_contents('php://input') ?: '[]', true);
+                $cuerpo = is_array($decodificado) ? $decodificado : [];
+            } else {
+                $cuerpo = $_POST;
+            }
+        }
+        return array_merge($_GET, $cuerpo);
     }
 
-    public function update(Request $request): void
-    {
-        Setting::update($request->all());
-        $this->json(Setting::get());
+    public function show() {
+        global $conn;
+        responderJson((new Configuracion($conn))->obtener());
     }
 
-    public function addCategory(Request $request): void
-    {
-        $category = trim((string) $request->input('category', ''));
-        if ($category === '') {
-            $this->validationError(['category' => ['El campo category es obligatorio.']]);
+    public function update() {
+        global $conn;
+        $configuracionModelo = new Configuracion($conn);
+        $configuracionModelo->actualizar($this->entrada());
+        responderJson($configuracionModelo->obtener());
+    }
+
+    public function addCategory() {
+        global $conn;
+        $datos = $this->entrada();
+        $categoria = trim((string) ($datos['category'] ?? ''));
+        if ($categoria === '') {
+            responderError('Datos inválidos.', 422, ['category' => ['El campo category es obligatorio.']]);
         }
 
-        Setting::addCategory($category);
-        $this->json(Setting::get());
+        $configuracionModelo = new Configuracion($conn);
+        $configuracionModelo->agregarCategoria($categoria);
+        responderJson($configuracionModelo->obtener());
     }
 
-    public function removeCategory(Request $request, string $category): void
-    {
+    public function removeCategory($category) {
+        global $conn;
+        $configuracionModelo = new Configuracion($conn);
         try {
-            Setting::removeCategory(urldecode($category));
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage(), 409);
+            $configuracionModelo->eliminarCategoria(urldecode($category));
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 409);
         }
 
-        $this->json(Setting::get());
+        responderJson($configuracionModelo->obtener());
     }
 }

@@ -1,39 +1,33 @@
 <?php
 
-namespace App\Controllers;
+class CashClosingController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Models\CashClosingReport;
-use App\Services\CashClosingService;
-use Throwable;
+    /** Genera y archiva el cierre de caja del dia para el admin autenticado. */
+    public function store() {
+        global $conn;
+        $auth = new Autenticacion($conn);
 
-class CashClosingController extends Controller
-{
-    /** Genera y archiva el cierre de caja del día para el admin autenticado. */
-    public function store(Request $request): void
-    {
         try {
-            $report = CashClosingService::generate(Auth::id());
-            $this->json($report, 201);
-        } catch (Throwable $e) {
-            $this->error($e->getMessage(), 409);
+            $reporte = (new Caja($conn))->generar($auth->idActual());
+            responderJson($reporte, 201);
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 409);
         }
     }
 
-    /** Historial de cierres ya generados (para auditoría/consulta). */
-    public function index(Request $request): void
-    {
-        $this->json(CashClosingReport::byAdmin(Auth::id()));
+    /** Historial de cierres ya generados (para auditoria/consulta). */
+    public function index() {
+        global $conn;
+        $auth = new Autenticacion($conn);
+        responderJson((new Caja($conn))->historialDeAdmin($auth->idActual()));
     }
 
-    public function show(Request $request, string $id): void
-    {
+    public function show($id) {
+        global $conn;
         try {
-            $this->json(CashClosingService::report($id));
-        } catch (Throwable $e) {
-            $this->error('Cierre no encontrado.', 404);
+            responderJson((new Caja($conn))->reporte($id));
+        } catch (Exception $e) {
+            responderError('Cierre no encontrado.', 404);
         }
     }
 }

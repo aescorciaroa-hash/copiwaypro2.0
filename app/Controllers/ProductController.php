@@ -1,83 +1,90 @@
 <?php
 
-namespace App\Controllers;
+class ProductController {
 
-use App\Core\Auth;
-use App\Core\Controller;
-use App\Core\Request;
-use App\Core\Validator;
-use App\Models\Product;
-
-class ProductController extends Controller
-{
-    public function index(Request $request): void
-    {
-        $isAdmin = Auth::check() && Auth::role() === 'admin';
-        $this->json(Product::all(!$isAdmin));
-    }
-
-    public function show(Request $request, string $id): void
-    {
-        $product = Product::find($id);
-        if (!$product) {
-            $this->error('Producto no encontrado.', 404);
-        }
-        $this->json($product);
-    }
-
-    public function store(Request $request): void
-    {
-        $data = $request->all();
-
-        $validator = Validator::make($data)
-            ->required('name')
-            ->required('price')->numeric('price')
-            ->required('category');
-
-        if ($validator->fails()) {
-            $this->validationError($validator->errors());
-        }
-
-        try {
-            $id = Product::create($data);
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage(), 422);
-        }
-
-        $this->json(Product::find($id), 201);
-    }
-
-    public function update(Request $request, string $id): void
-    {
-        if (!Product::find($id)) {
-            $this->error('Producto no encontrado.', 404);
-        }
-
-        $data = $request->all();
-
-        if (array_key_exists('price', $data)) {
-            $validator = Validator::make($data)->numeric('price');
-            if ($validator->fails()) {
-                $this->validationError($validator->errors());
+    private function entrada() {
+        $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+        $cuerpo = [];
+        if (!in_array($metodo, ['GET', 'HEAD'])) {
+            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+            if (stripos($contentType, 'application/json') !== false) {
+                $decodificado = json_decode(file_get_contents('php://input') ?: '[]', true);
+                $cuerpo = is_array($decodificado) ? $decodificado : [];
+            } else {
+                $cuerpo = $_POST;
             }
         }
-
-        try {
-            Product::update($id, $data);
-        } catch (\RuntimeException $e) {
-            $this->error($e->getMessage(), 422);
-        }
-
-        $this->json(Product::find($id));
+        return array_merge($_GET, $cuerpo);
     }
 
-    public function destroy(Request $request, string $id): void
-    {
-        if (!Product::find($id)) {
-            $this->error('Producto no encontrado.', 404);
+    public function index() {
+        global $conn;
+        $auth = new Autenticacion($conn);
+        $esAdmin = $auth->haySesion() && $auth->rolActual() === 'admin';
+        responderJson((new Producto($conn))->listar(!$esAdmin));
+    }
+
+    public function show($id) {
+        global $conn;
+        $producto = (new Producto($conn))->buscar($id);
+        if (!$producto) {
+            responderError('Producto no encontrado.', 404);
+        }
+        responderJson($producto);
+    }
+
+    public function store() {
+        global $conn;
+        $datos = $this->entrada();
+
+        $errores = [];
+        if (empty($datos['name'])) $errores['name'] = ['El campo name es obligatorio.'];
+        if (!isset($datos['price']) || !is_numeric($datos['price'])) $errores['price'] = ['El campo price debe ser numérico.'];
+        if (empty($datos['category'])) $errores['category'] = ['El campo category es obligatorio.'];
+        if (!empty($errores)) {
+            responderError('Datos inválidos.', 422, $errores);
         }
 
-        Product::delete($id);
-        $this->json(['ok' => true]);
+        $productoModelo = new Producto($conn);
+        try {
+            $id = $productoModelo->crear($datos);
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 422);
+        }
+
+        responderJson($productoModelo->buscar($id), 201);
+    }
+
+    public function update($id) {
+        global $conn;
+        $productoModelo = new Producto($conn);
+        if (!$productoModelo->buscar($id)) {
+            responderError('Producto no encontrado.', 404);
+        }
+
+        $datos = $this->entrada();
+
+        if (array_key_exists('price', $datos) && !is_numeric($datos['price'])) {
+            responderError('Datos inválidos.', 422, ['price' => ['El campo price debe ser numérico.']]);
+        }
+
+        try {
+            $productoModelo->actualizar($id, $datos);
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 422);
+        }
+
+        responderJson($productoModelo->buscar($id));
+    }
+
+    public function destroy($id) {
+        global $conn;
+        $productoModelo = new Producto($conn);
+        if (!$productoModelo->buscar($id)) {
+            responderError('Producto no encontrado.', 404);
+        }
+
+        $productoModelo->eliminar($id);
+        responderJson(['ok' => true]);
     }
 }
