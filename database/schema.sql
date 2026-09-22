@@ -127,6 +127,7 @@ CREATE TABLE CODIGO_VERIFICACION (
     fecha_generacion DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     fecha_expiracion DATETIME    NOT NULL,
     usado            BOOLEAN     NOT NULL DEFAULT FALSE,
+    intentos         TINYINT     NOT NULL DEFAULT 0,  -- intentos fallidos de verificacion; se invalida al llegar a 5
     FOREIGN KEY (id_cliente) REFERENCES CLIENTE(id_cliente) ON DELETE CASCADE
 );
 

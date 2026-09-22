@@ -113,7 +113,11 @@ class AuthController {
 
         $codigoModelo = new CodigoVerificacion($conn);
         $coincidencia = $codigoModelo->buscarValidoPorCorreo($email);
-        if (!$coincidencia || !password_verify($codigo, $coincidencia['codigo_hash'])) {
+        if (!$coincidencia) {
+            responderError('Código inválido o expirado.', 422);
+        }
+        if (!password_verify($codigo, $coincidencia['codigo_hash'])) {
+            $codigoModelo->incrementarIntentos($coincidencia['id_codigo']);
             responderError('Código inválido o expirado.', 422);
         }
 

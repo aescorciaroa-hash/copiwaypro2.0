@@ -41,7 +41,7 @@ class CodigoVerificacion {
         $stmt = $this->consulta(
             'SELECT cv.* FROM CODIGO_VERIFICACION cv
              JOIN CLIENTE c ON c.id_cliente = cv.id_cliente
-             WHERE c.correo = ? AND cv.usado = 0 AND cv.fecha_expiracion > NOW()
+             WHERE c.correo = ? AND cv.usado = 0 AND cv.fecha_expiracion > NOW() AND cv.intentos < 5
              ORDER BY cv.fecha_generacion DESC',
             [$correo]
         );
@@ -52,6 +52,12 @@ class CodigoVerificacion {
 
     public function marcarUsado($idCodigo) {
         $stmt = $this->consulta('UPDATE CODIGO_VERIFICACION SET usado = 1 WHERE id_codigo = ?', [$idCodigo]);
+        $stmt->close();
+    }
+
+    /** Registra un intento fallido de verificacion; al quinto, el codigo deja de ser valido. */
+    public function incrementarIntentos($idCodigo) {
+        $stmt = $this->consulta('UPDATE CODIGO_VERIFICACION SET intentos = intentos + 1 WHERE id_codigo = ?', [$idCodigo]);
         $stmt->close();
     }
 }
