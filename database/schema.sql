@@ -103,6 +103,13 @@ CREATE TABLE CLIENTE (
     fecha_aceptacion_habeas_data DATETIME     NOT NULL,
     ip_aceptacion_habeas_data    VARCHAR(45)  NOT NULL,              -- soporta IPv6
     activo                       BOOLEAN      NOT NULL DEFAULT TRUE,
+    -- El frontend ya intenta guardar estos dos campos por cliente (ThemeContext.tsx
+    -- llama a updateClient({preferences:{theme}}) al cambiar el tema; ClientDashboard.tsx
+    -- llama a updateClient({cart}) en cada cambio del carrito, para que persista entre
+    -- dispositivos), pero como estas columnas no existian, esas llamadas se ignoraban
+    -- en silencio y el tema/carrito solo sobrevivian en el localStorage del navegador.
+    tema_preferido               ENUM('light','dark') NULL,          -- Client.preferences.theme
+    carrito_guardado             JSON         NULL,                  -- Client.cart
     creado_en                    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

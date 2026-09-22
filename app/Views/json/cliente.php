@@ -19,7 +19,8 @@ function cliente_a_json($datosCrudos) {
         'lastOrderDate' => $datosCrudos['lastOrderDate'],
         'notifications' => $datosCrudos['notifications'],
         'birthday' => $fila['fecha_nacimiento'],
-        'preferences' => null,
+        'preferences' => $fila['tema_preferido'] !== null ? ['theme' => $fila['tema_preferido']] : null,
+        'cart' => $fila['carrito_guardado'] !== null ? json_decode($fila['carrito_guardado'], true) : [],
     ];
 }
 

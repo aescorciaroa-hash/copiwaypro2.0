@@ -120,6 +120,19 @@ class Cliente {
                 $valores[] = $campos[$claveJson];
             }
         }
+
+        // 'cart' y 'preferences' no son columnas 1:1: el carrito se guarda como
+        // JSON y el tema viene anidado en preferences.theme (unica preferencia
+        // que el frontend usa hoy -- ver ThemeContext.tsx/ClientDashboard.tsx).
+        if (array_key_exists('cart', $campos)) {
+            $sets[] = 'carrito_guardado = ?';
+            $valores[] = json_encode($campos['cart']);
+        }
+        if (array_key_exists('preferences', $campos) && is_array($campos['preferences']) && isset($campos['preferences']['theme'])) {
+            $sets[] = 'tema_preferido = ?';
+            $valores[] = $campos['preferences']['theme'];
+        }
+
         if (empty($sets)) {
             return;
         }

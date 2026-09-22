@@ -46,7 +46,10 @@ class ClientController {
 
         $auth = new Autenticacion($conn);
         if ($auth->rolActual() !== 'admin') {
-            $permitidos = ['name', 'phone', 'address', 'birthday'];
+            // cart/preferences son autoservicio (el propio cliente guarda su
+            // carrito y su tema preferido en cada cambio); el resto de campos
+            // sensibles (email, points, totalSpent) siguen solo para admin.
+            $permitidos = ['name', 'phone', 'address', 'birthday', 'cart', 'preferences'];
             $datos = array_intersect_key($datos, array_flip($permitidos));
         }
 
