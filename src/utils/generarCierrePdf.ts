@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import type { Order } from '../store/almacenAplicacion';
 
 export interface CierreDataForPDF {
   date: string;
@@ -12,7 +13,7 @@ export interface CierreDataForPDF {
   insumosConsumidos: Array<{ name: string; used: number; unit?: string }>;
 }
 
-export function generateCierrePDF(data: CierreDataForPDF, orders: any[] = []): { doc: jsPDF; blobUrl: string; download: () => void } {
+export function generateCierrePDF(data: CierreDataForPDF, orders: Order[] = []): { doc: jsPDF; blobUrl: string; download: () => void } {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',

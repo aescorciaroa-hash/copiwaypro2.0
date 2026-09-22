@@ -1,6 +1,16 @@
 import { useEffect, useRef } from 'react';
-import { useStore } from '../store/almacenAplicacion';
+import { useStore, Product, InventoryItem, Ingredient, Staff, Order, Client, StoreConfig } from '../store/almacenAplicacion';
 import { api, fetchSync, setCsrfToken } from '../servicios/api';
+
+interface SyncData {
+  products?: Product[];
+  settings?: StoreConfig;
+  inventory?: InventoryItem[];
+  ingredients?: Ingredient[];
+  staff?: Staff[];
+  orders?: Order[];
+  clients?: Client[];
+}
 
 const POLL_INTERVAL_MS = 2500;
 
@@ -38,7 +48,7 @@ export default function FirebaseSync() {
     const poll = async () => {
       if (stoppedRef.current) return;
       try {
-        const data = await fetchSync<any>();
+        const data = await fetchSync<SyncData>();
         if (data) {
           if (data.products) setProducts(data.products);
           if (data.settings) setStoreConfig(data.settings);

@@ -14,7 +14,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 import { formatCOP } from '../lib/format';
 
-import { useStore, DEFAULT_MENU_CATEGORIES } from '../store/almacenAplicacion';
+import { useStore, DEFAULT_MENU_CATEGORIES, Product, ProductComponent, Order, OrderItem, Staff, Client, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
 import { CustomSelect } from '../components/CustomSelect';
 import { TimePickerModal } from '../components/TimePickerModal';
@@ -34,7 +34,7 @@ const RoutePolyline = ({ origin, destination, outerColor, innerColor, onRouteLoa
       .then(res => res.json())
       .then(data => {
         if (data.routes && data.routes[0]) {
-          const coords = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]]);
+          const coords = data.routes[0].geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
           setPositions(coords);
           if (onRouteLoaded) onRouteLoaded(coords);
         }
@@ -81,7 +81,62 @@ const CustomZoomControl = () => {
 };
 
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+interface DriverMockOrder {
+  id: string;
+  client: string;
+  address: string;
+  status: string;
+  items: string[];
+  total: number;
+  paymentMethod?: string;
+  paymentStatus?: string;
+}
+
+interface DriverMockInfo {
+  name: string;
+  status: string;
+  phone: string;
+  plate: string;
+  vehicle: string;
+  orders: DriverMockOrder[];
+}
+
+interface ManualCustomIngredient extends ProductComponent {
+  price?: number;
+}
+
+interface ManualOrderItem {
+  id: string;
+  product: Product;
+  name: string;
+  quantity: number;
+  basePrice: number;
+  finalPrice: number;
+  removed: ManualCustomIngredient[];
+  extras: ManualCustomIngredient[];
+}
+
+interface CashClosingReport {
+  date: string;
+  totalVentas: number;
+  totalOrdenes: number;
+  activeOrdersCount: number;
+  desglose: { efectivo: number; digital: number };
+  insumosConsumidos: Array<{ name: string; used: number; unit?: string }>;
+  driverLiquidations: Array<{ driverName: string; ordersCount: number; cashCollected: number; baseCash: number; totalDue: number }>;
+}
+
+interface CierreData {
+  date: string;
+  totalVentas: number;
+  totalOrdenes: number;
+  activeOrdersCount: number;
+  desglose: { efectivo: number; digital: number };
+  insumosConsumidos: Array<{ name: string; used: number }>;
+  liquidaciones: Array<{ driverName: string; ordersCount: number; cashCollected: number; base: number; totalDue: number }>;
+}
+
+const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white dark:bg-[#151515] border border-gray-100 dark:border-stone-800 p-3 rounded-[12px] shadow-lg">
@@ -130,9 +185,9 @@ export default function AdminDashboard() {
     }
   };
   const [isMapExpanded, setIsMapExpanded] = useState(false);
-  const [selectedDriverInfo, setSelectedDriverInfo] = useState<any | null>(null);
-  const [selectedStaffInfo, setSelectedStaffInfo] = useState<any>(null);
-  const [selectedClientInfo, setSelectedClientInfo] = useState<any>(null);
+  const [selectedDriverInfo, setSelectedDriverInfo] = useState<DriverMockInfo | null>(null);
+  const [selectedStaffInfo, setSelectedStaffInfo] = useState<Staff | null>(null);
+  const [selectedClientInfo, setSelectedClientInfo] = useState<Client | null>(null);
   const [staffEditData, setStaffEditData] = useState({ 
     name: "", 
     phone: "", 
@@ -147,7 +202,7 @@ export default function AdminDashboard() {
   const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [copiedStaffCreds, setCopiedStaffCreds] = useState(false);
 
-  const handleOpenStaffModal = (emp: any) => {
+  const handleOpenStaffModal = (emp: Staff) => {
     setSelectedStaffInfo(emp);
     setStaffEditData({
       name: emp.name || "",
@@ -232,7 +287,7 @@ export default function AdminDashboard() {
   
   // Ajustes
 
-  const driversMockData: Record<number, any> = {
+  const driversMockData: Record<number, DriverMockInfo> = {
     1: {
       name: 'Repartidor 1 - Carlos Mendoza',
       status: 'EN RUTA',
@@ -319,8 +374,8 @@ export default function AdminDashboard() {
     category: string;
     badge: string;
     active: boolean;
-    ingredients: any[];
-    packaging: any[];
+    ingredients: ProductComponent[];
+    packaging: ProductComponent[];
   }>({
     name: '',
     description: '',
@@ -354,14 +409,14 @@ export default function AdminDashboard() {
   const [newStaff, setNewStaff] = useState({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: '', baseCash: 0 as number | '' });
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualOrderClient, setManualOrderClient] = useState({ name: '', address: '', phone: '' });
-  const [manualOrderItems, setManualOrderItems] = useState<any[]>([]);
-  const [manualSelectedProduct, setManualSelectedProduct] = useState<any>(null);
-  const [manualCustomRemoved, setManualCustomRemoved] = useState<any[]>([]);
-  const [manualCustomExtras, setManualCustomExtras] = useState<any[]>([]);
+  const [manualOrderItems, setManualOrderItems] = useState<ManualOrderItem[]>([]);
+  const [manualSelectedProduct, setManualSelectedProduct] = useState<Product | null>(null);
+  const [manualCustomRemoved, setManualCustomRemoved] = useState<ManualCustomIngredient[]>([]);
+  const [manualCustomExtras, setManualCustomExtras] = useState<ManualCustomIngredient[]>([]);
   const [manualQuantity, setManualQuantity] = useState<number | ''>(1);
-  const [viewingOrder, setViewingOrder] = useState<any>(null);
-  
-  const [editingAddressOrder, setEditingAddressOrder] = useState<any>(null);
+  const [viewingOrder, setViewingOrder] = useState<Order | null>(null);
+
+  const [editingAddressOrder, setEditingAddressOrder] = useState<Order | null>(null);
   const [newAddress, setNewAddress] = useState('');
   const [showAddressSuccess, setShowAddressSuccess] = useState(false);
   const [toastData, setToastData] = useState<ToastData | null>(null);
@@ -398,7 +453,7 @@ export default function AdminDashboard() {
   };
 
   const [showCierre, setShowCierre] = useState(false);
-  const [cierreData, setCierreData] = useState<any>(null);
+  const [cierreData, setCierreData] = useState<CierreData | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -473,7 +528,7 @@ export default function AdminDashboard() {
   const topProductsData = useMemo(() => {
     const counts: Record<string, number> = {};
     orders.forEach(o => {
-      (o.items || []).forEach((item: any) => {
+      (o.items || []).forEach((item: OrderItem) => {
         const name = item.product?.name || item.name || 'Producto';
         counts[name] = (counts[name] || 0) + (item.quantity || 1);
       });
@@ -500,15 +555,15 @@ export default function AdminDashboard() {
 
   const handleGenerarCierre = async () => {
     try {
-      const report = await api.post<any>('/cash-closing');
+      const report = await api.post<CashClosingReport>('/cash-closing');
       const newCierre = {
         date: new Date(report.date).toLocaleDateString('es-CO'),
         totalVentas: report.totalVentas,
         totalOrdenes: report.totalOrdenes,
         activeOrdersCount: report.activeOrdersCount,
         desglose: report.desglose,
-        insumosConsumidos: report.insumosConsumidos.map((i: any) => ({ name: i.name, used: i.used })),
-        liquidaciones: report.driverLiquidations.map((l: any) => ({
+        insumosConsumidos: report.insumosConsumidos.map((i) => ({ name: i.name, used: i.used })),
+        liquidaciones: report.driverLiquidations.map((l) => ({
           driverName: l.driverName,
           ordersCount: l.ordersCount,
           cashCollected: l.cashCollected,
@@ -1034,7 +1089,7 @@ export default function AdminDashboard() {
     const listosOrders = orders.filter(o => o.status === 'Listos');
     const activeDrivers = staff.filter(s => s.role === 'Domiciliario' && s.active);
 
-    const getOrderCoords = (order: any, idx: number): [number, number] => {
+    const getOrderCoords = (order: Order, idx: number): [number, number] => {
       if (order.lat && order.lng) return [order.lat, order.lng];
       const points: [number, number][] = [
         [2.9345, -75.2890],
@@ -1472,14 +1527,14 @@ export default function AdminDashboard() {
       const priceVal = parseInt(newProduct.price) || 0;
 
       // Calcular costo de producción según insumos y empaques del inventario
-      const ingredientsCost = (newProduct.ingredients || []).reduce((acc: number, ing: any) => {
+      const ingredientsCost = (newProduct.ingredients || []).reduce((acc: number, ing: ProductComponent) => {
         const invItem = inventory.find(i => i.name.toLowerCase() === ing.name.toLowerCase());
         const uCost = ing.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
         const qty = ing.quantity || 1;
         return acc + (uCost * qty);
       }, 0);
 
-      const packagingCost = (newProduct.packaging || []).reduce((acc: number, pkg: any) => {
+      const packagingCost = (newProduct.packaging || []).reduce((acc: number, pkg: ProductComponent) => {
         const invItem = inventory.find(i => i.name.toLowerCase() === pkg.name.toLowerCase());
         const uCost = pkg.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
         const qty = pkg.quantity || 1;
@@ -1546,8 +1601,8 @@ export default function AdminDashboard() {
       setIsProductModalOpen(false);
     };
 
-    const handleEditProduct = (product: any) => { 
-      setEditingProductId(product.id); 
+    const handleEditProduct = (product: Product) => {
+      setEditingProductId(product.id);
       setNewProduct({
         name: product.name,
         description: product.description || '',
@@ -1556,14 +1611,14 @@ export default function AdminDashboard() {
         category: product.category || 'Hamburguesas',
         badge: product.badge || '',
         active: product.active ?? true,
-        ingredients: (product.ingredients || []).map((ing: any) => 
+        ingredients: (product.ingredients || []).map((ing: ProductComponent | string) =>
           typeof ing === 'string' ? { id: 'i' + Math.random().toString(36).substr(2,5), name: ing, quantity: 1 } : ing
         ),
-        packaging: (product.packaging || []).map((pkg: any) => 
+        packaging: (product.packaging || []).map((pkg: ProductComponent | string) =>
           typeof pkg === 'string' ? { id: 'p' + Math.random().toString(36).substr(2,5), name: pkg, quantity: 1 } : pkg
         )
-      }); 
-      setIsProductModalOpen(true); 
+      });
+      setIsProductModalOpen(true);
     };
 
     const toggleProductStatus = (id: string) => {
@@ -1800,14 +1855,14 @@ export default function AdminDashboard() {
       <AnimatePresence>
         {isProductModalOpen && (() => {
           const sellingPrice = parseInt(newProduct.price) || 0;
-          const ingredientsCost = (newProduct.ingredients || []).reduce((acc: number, ing: any) => {
+          const ingredientsCost = (newProduct.ingredients || []).reduce((acc: number, ing: ProductComponent) => {
             const invItem = inventory.find(i => i.name.toLowerCase() === ing.name.toLowerCase());
             const uCost = ing.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
             const qty = ing.quantity || 1;
             return acc + (uCost * qty);
           }, 0);
 
-          const packagingCost = (newProduct.packaging || []).reduce((acc: number, pkg: any) => {
+          const packagingCost = (newProduct.packaging || []).reduce((acc: number, pkg: ProductComponent) => {
             const invItem = inventory.find(i => i.name.toLowerCase() === pkg.name.toLowerCase());
             const uCost = pkg.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
             const qty = pkg.quantity || 1;
@@ -2201,7 +2256,7 @@ export default function AdminDashboard() {
                           </div>
                         ) : (
                           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                            {(newProduct.ingredients || []).map((ing: any, idx: number) => {
+                            {(newProduct.ingredients || []).map((ing: ProductComponent, idx: number) => {
                               const invItem = inventory.find(i => i.name.toLowerCase() === ing.name.toLowerCase());
                               const uCost = ing.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
                               const lineCost = uCost * (ing.quantity || 1);
@@ -2412,7 +2467,7 @@ export default function AdminDashboard() {
                               </div>
                             ) : (
                               <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                                {newProduct.packaging.map((pkg: any, idx: number) => {
+                                {newProduct.packaging.map((pkg: ProductComponent, idx: number) => {
                                   const invItem = inventory.find(i => i.name.toLowerCase() === pkg.name.toLowerCase());
                                   const uCost = pkg.cost || (invItem?.unitCost || (invItem?.totalCost && invItem?.stock ? Math.round(invItem.totalCost / invItem.stock) : 0));
                                   const lineCost = uCost * (pkg.quantity || 1);
@@ -3703,7 +3758,7 @@ export default function AdminDashboard() {
       phone: manualOrderClient.phone,
       date: new Date().toISOString()
     };
-    addOrder(newOrder as any);
+    addOrder(newOrder as unknown as Order);
     showToast('success', `Pedido manual ${orderId} creado y enviado a cocina`, 'Pedido Manual');
     setShowManualForm(false);
     setManualOrderClient({ name: '', address: '', phone: '' });
@@ -3840,7 +3895,7 @@ export default function AdminDashboard() {
                         <div className="bg-gray-50 dark:bg-stone-900 rounded-xl p-3 border border-gray-100 dark:border-stone-800">
                           <p className="text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Detalle del Pedido</p>
                           <ul className="space-y-1.5">
-                            {order.items.map((item: any, idx: number) => (
+                            {order.items.map((item: OrderItem, idx: number) => (
                               <li key={idx} className="text-xs">
                                 <div className="font-bold text-gray-800 dark:text-stone-200 flex items-start gap-1.5">
                                   <span className="text-brand-orange font-black">{item.quantity}x</span>
@@ -4821,7 +4876,7 @@ export default function AdminDashboard() {
                       <h3 className="font-bold text-sm text-gray-900 dark:text-white mb-4 uppercase tracking-wider">Liquidación de Domiciliarios</h3>
                       <div className="bg-gray-50 dark:bg-stone-900/50 rounded-[20px] p-6 border border-gray-100 dark:border-stone-800">
                         <div className="space-y-4">
-                          {cierreData.liquidaciones.map((liq: any, idx: number) => (
+                          {cierreData.liquidaciones.map((liq, idx: number) => (
                             <div key={idx} className="bg-white dark:bg-[#151515] p-4 rounded-xl border border-gray-100 dark:border-stone-800">
                               <div className="flex justify-between items-center mb-3">
                                 <span className="font-black text-gray-900 dark:text-white">{liq.driverName}</span>
@@ -5009,7 +5064,7 @@ export default function AdminDashboard() {
                         <span>Cantidad Consumida</span>
                       </div>
                       <div className="divide-y divide-gray-100 dark:divide-stone-800">
-                        {cierreData.insumosConsumidos?.map((ins: any, i: number) => (
+                        {cierreData.insumosConsumidos?.map((ins, i: number) => (
                           <div key={i} className="p-2.5 flex justify-between text-gray-700 dark:text-stone-300 bg-white dark:bg-[#1f1f23]">
                             <span>{ins.name}</span>
                             <span className="font-semibold text-gray-900 dark:text-white">{ins.used} u</span>
@@ -5110,7 +5165,7 @@ export default function AdminDashboard() {
                 </h3>
                 
                 <div className="space-y-4">
-                  {selectedDriverInfo.orders.map((order: any, idx: number) => (
+                  {selectedDriverInfo.orders.map((order, idx: number) => (
                     <div key={idx} className="border border-gray-200 dark:border-stone-800 rounded-[24px] p-6 bg-white dark:bg-[#151515] relative overflow-hidden group">
                       <div className={`absolute top-0 left-0 w-1.5 h-full ${order.status === 'Entregado' ? 'bg-emerald-500' : 'bg-brand-orange'}`}></div>
                       
@@ -5277,8 +5332,8 @@ export default function AdminDashboard() {
                           <p className="font-bold text-sm text-gray-900 dark:text-white">{item.name}</p>
                           {(item.removed.length > 0 || item.extras.length > 0) && (
                             <div className="flex flex-wrap gap-2 mt-1">
-                              {item.removed.map((r:any) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
-                              {item.extras.map((e:any) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
+                              {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
+                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
                             </div>
                           )}
                         </div>
@@ -5353,7 +5408,7 @@ export default function AdminDashboard() {
                       <div className="space-y-3">
                         <label className="block text-xs font-bold text-gray-700 dark:text-stone-300">Personalizar Ingredientes</label>
                         <div className="flex flex-wrap gap-2">
-                          {manualSelectedProduct.ingredients.map((ing: any) => {
+                          {manualSelectedProduct.ingredients.map((ing: ProductComponent) => {
                             const isRemoved = manualCustomRemoved.some(r => r.id === ing.id);
                             const isExtra = manualCustomExtras.some(e => e.id === ing.id);
                             
@@ -5472,7 +5527,7 @@ export default function AdminDashboard() {
                       <span className={`px-3 py-1.5 rounded-lg text-xs font-bold inline-flex ${
                         viewingOrder.status === 'Pendiente' ? 'bg-yellow-100 text-yellow-800' :
                         viewingOrder.status === 'En Preparación' ? 'bg-blue-100 text-blue-800' :
-                        viewingOrder.status === 'Listo para Entregar' ? 'bg-green-100 text-green-800' :
+                        (viewingOrder.status as string) === 'Listo para Entregar' ? 'bg-green-100 text-green-800' :
                         viewingOrder.status === 'Entregado' ? 'bg-gray-100 text-gray-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
@@ -5612,7 +5667,7 @@ export default function AdminDashboard() {
                       <ShoppingBag className="w-5 h-5" /> Artículos ({viewingOrder.items.length})
                    </h4>
                    <ul className="space-y-3">
-                     {viewingOrder.items.map((item: any, idx: number) => (
+                     {viewingOrder.items.map((item: OrderItem, idx: number) => (
                         <li key={idx} className="flex flex-col text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 px-4 py-3 rounded-xl border border-gray-100 dark:border-stone-800">
                           <div className="flex justify-between w-full">
                             <span className="font-medium"><span className="text-brand-orange font-bold mr-2">{item.quantity}x</span> {item.name}</span>

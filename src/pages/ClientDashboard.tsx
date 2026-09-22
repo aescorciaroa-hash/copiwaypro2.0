@@ -12,16 +12,41 @@ import {
 
 import { formatCOP } from '../lib/format';
 import { CustomDatePicker } from '../components/CustomDatePicker';
-import { useStore } from '../store/almacenAplicacion';
+import { useStore, Product, ProductComponent, Order } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+
+interface SyncedIngredient {
+  id: string;
+  name: string;
+  rawCost: number;
+  price: number;
+  category: string;
+  stock: number;
+  unit: string;
+}
+
+interface CartItem {
+  id: string;
+  isCustom?: boolean;
+  product?: Product;
+  name?: string;
+  basePrice?: number;
+  price?: number;
+  finalPrice?: number;
+  quantity?: number;
+  image?: string;
+  removed?: ProductComponent[];
+  extras?: SyncedIngredient[];
+  stack?: SyncedIngredient[];
+}
 
 export default function ClientDashboard() {
   const { theme, toggleTheme } = useTheme();
     const [activeTab, setActiveTab] = useState('catalog');
   const [showDeliveryNotification, setShowDeliveryNotification] = useState<string | null>(null);
-  const [selectedOrderInfo, setSelectedOrderInfo] = useState<any | null>(null);
+  const [selectedOrderInfo, setSelectedOrderInfo] = useState<Order | null>(null);
   const [reviewingOrderId, setReviewingOrderId] = useState<string | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(0);
   const [reviewHoverRating, setReviewHoverRating] = useState<number>(0);
@@ -29,7 +54,7 @@ export default function ClientDashboard() {
   const [reviewTags, setReviewTags] = useState<string[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [historyFilter, setHistoryFilter] = useState<'all' | 'unrated' | 'rated'>('all');
-  const [viewingReceiptOrder, setViewingReceiptOrder] = useState<any | null>(null);
+  const [viewingReceiptOrder, setViewingReceiptOrder] = useState<Order | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     title: string;
@@ -154,7 +179,7 @@ export default function ClientDashboard() {
       'Cebolla': { baseCost: 800, category: 'vegetal' }
     };
 
-    const combined: any[] = [];
+    const combined: SyncedIngredient[] = [];
     const seenNames = new Set<string>();
 
     const sourceList = ingredients.length > 0 ? ingredients : Object.entries(defaultIngredientMap).map(([name, val], idx) => ({
@@ -220,11 +245,11 @@ export default function ClientDashboard() {
   }, [ingredients, inventory, profitMargin]);
   
   // Estado del Creador Interactivo
-  const [builderStack, setBuilderStack] = useState<any[]>([]);
+  const [builderStack, setBuilderStack] = useState<SyncedIngredient[]>([]);
   
   // Estado del Carrito (HU-15 Persistencia)
   const [editingCartItemId, setEditingCartItemId] = useState<string | null>(null);
-  const [cart, setCart] = useState<any[]>(() => {
+  const [cart, setCart] = useState<CartItem[]>(() => {
     const saved = localStorage.getItem('olio_cart');
     return saved ? JSON.parse(saved) : [];
   });
@@ -246,7 +271,7 @@ export default function ClientDashboard() {
           points: client.points || prev.points,
           notifications: client.notifications || prev.notifications
         }));
-        if (client.cart) setCart(client.cart);
+        if (client.cart) setCart(client.cart as CartItem[]);
       }
     }
   }, [currentUserId, clients.length]);
@@ -279,9 +304,9 @@ export default function ClientDashboard() {
   };
 
   // Estado del Modal de Personalización (HU-08)
-  const [selectedProduct, setSelectedProduct] = useState<any | null>(null);
-  const [customRemoved, setCustomRemoved] = useState<any[]>([]);
-  const [customExtras, setCustomExtras] = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [customRemoved, setCustomRemoved] = useState<ProductComponent[]>([]);
+  const [customExtras, setCustomExtras] = useState<SyncedIngredient[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'cash'>('online');
   const [digitalBank, setDigitalBank] = useState<'nequi' | 'daviplata' | 'bancolombia'>('nequi');
   const [paymentPhone, setPaymentPhone] = useState('');
@@ -321,7 +346,7 @@ export default function ClientDashboard() {
   const cartTotal = cartSubtotal - birthdayDiscount + (cart.length > 0 ? FLAT_SHIPPING_RATE : 0);
 
   // -- Manejadores --
-  const openCustomizer = (product: any) => {
+  const openCustomizer = (product: Product) => {
     setSelectedProduct(product);
     setCustomRemoved([]);
     setCustomExtras([]);
@@ -435,7 +460,7 @@ export default function ClientDashboard() {
         };
 
         try {
-          await addOrder(newOrder);
+          await addOrder(newOrder as unknown as Order);
         } catch (err) {
           // El servidor rechazó el pedido (tienda cerrada, sin stock, pago no
           // confirmado, etc.) — se muestra el motivo real en vez de fingir éxito.
@@ -473,7 +498,7 @@ export default function ClientDashboard() {
   };
 
   // RF-08: Recompra en 1 clic con comprobación exhaustiva de stock
-  const reorder = (order: any) => {
+  const reorder = (order: Order) => {
     if (!order || !order.items || order.items.length === 0) {
       showToast('warning', 'No se encontraron artículos en la orden previa.', 'Recompra');
       return;
@@ -502,7 +527,7 @@ export default function ClientDashboard() {
           unavailableItems.push(item.name || 'Producto del menú');
         } else if (catProduct.ingredients && catProduct.ingredients.length > 0) {
           // Validar insumos base de la receta no excluidos
-          const removedNames = (item.removed || []).map((r: any) => (r.name || r).toLowerCase());
+          const removedNames = (item.removed || []).map((r) => ((r.name || r) as string).toLowerCase());
           for (const baseIng of catProduct.ingredients) {
             const ingName = (typeof baseIng === 'string' ? baseIng : baseIng.name || '').toLowerCase();
             if (!removedNames.includes(ingName)) {
@@ -534,12 +559,12 @@ export default function ClientDashboard() {
       type: 'info',
       onConfirm: () => {
         // Clonación de la orden histórica al carrito actual con precios actualizados
-        const clonedItems = order.items.map((i: any) => ({ 
-          ...i, 
-          id: Math.random().toString(36).substr(2, 9), 
-          finalPrice: Number(i.finalPrice) || Number(i.price) || Number(i.basePrice) || 0 
+        const clonedItems = order.items.map((i) => ({
+          ...i,
+          id: Math.random().toString(36).substr(2, 9),
+          finalPrice: Number(i.finalPrice) || Number(i.price) || Number(i.basePrice) || 0
         }));
-        setCart([...cart, ...clonedItems]);
+        setCart([...cart, ...clonedItems] as CartItem[]);
         showToast('cart', '¡Pedido duplicado y listo en tu carrito!', 'Recompra en 1-Clic');
         setActiveTab('cart');
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
@@ -988,8 +1013,8 @@ export default function ClientDashboard() {
     if (!layer || !React.isValidElement(layer)) return layer;
     
     if (isOutOfStock) {
-      const layerElem = layer as React.ReactElement<any>;
-      return React.cloneElement(layerElem as React.ReactElement<any>, {
+      const layerElem = layer as React.ReactElement<{ className?: string; children?: React.ReactNode }>;
+      return React.cloneElement(layerElem, {
          className: (layerElem.props.className || '') + ' cursor-not-allowed',
          children: (
            <>
@@ -1543,7 +1568,7 @@ export default function ClientDashboard() {
     const filteredHistory = historyList.filter(order => {
       const matchesSearch = !historySearch.trim() || 
         order.id.toLowerCase().includes(historySearch.toLowerCase()) ||
-        (order.items || []).some((it: any) => it.name?.toLowerCase().includes(historySearch.toLowerCase()));
+        (order.items || []).some((it) => it.name?.toLowerCase().includes(historySearch.toLowerCase()));
 
       if (historyFilter === 'rated') {
         return matchesSearch && Boolean(order.rating);
@@ -1723,7 +1748,7 @@ export default function ClientDashboard() {
                     <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1">
                       Productos del Pedido
                     </span>
-                    {(order.items || []).map((item: any, idx: number) => (
+                    {(order.items || []).map((item, idx: number) => (
                       <div key={item.id || idx} className="flex items-start justify-between text-sm py-1.5 border-b border-gray-100 dark:border-stone-800 last:border-0">
                         <div className="space-y-1">
                           <div className="flex items-center gap-2 font-bold text-gray-800 dark:text-stone-200">
@@ -1735,12 +1760,12 @@ export default function ClientDashboard() {
 
                           {/* Customizations (SIN in red, EXTRA in green) */}
                           <div className="flex flex-wrap gap-1.5 pl-8">
-                            {(item.removed || []).map((rem: any, rIdx: number) => (
+                            {(item.removed || []).map((rem, rIdx: number) => (
                               <span key={rIdx} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800/40">
                                 ✕ SIN {rem.name}
                               </span>
                             ))}
-                            {(item.extras || []).map((ext: any, eIdx: number) => (
+                            {(item.extras || []).map((ext, eIdx: number) => (
                               <span key={eIdx} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">
                                 + EXTRA {ext.name}
                               </span>
@@ -2001,14 +2026,14 @@ export default function ClientDashboard() {
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Estado del Pedido</span>
                       <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                        viewingReceiptOrder.status === 'delivered' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
-                        viewingReceiptOrder.status === 'on_way' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
-                        viewingReceiptOrder.status === 'in_prep' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
+                        (viewingReceiptOrder.status as string) === 'delivered' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                        (viewingReceiptOrder.status as string) === 'on_way' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
+                        (viewingReceiptOrder.status as string) === 'in_prep' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
                         'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400'
                       }`}>
-                        {viewingReceiptOrder.status === 'delivered' ? '✓ Entregado' :
-                         viewingReceiptOrder.status === 'on_way' ? '🛵 En camino' :
-                         viewingReceiptOrder.status === 'in_prep' ? '👨‍🍳 En preparación' :
+                        {(viewingReceiptOrder.status as string) === 'delivered' ? '✓ Entregado' :
+                         (viewingReceiptOrder.status as string) === 'on_way' ? '🛵 En camino' :
+                         (viewingReceiptOrder.status as string) === 'in_prep' ? '👨‍🍳 En preparación' :
                          '📋 Recibido'}
                       </span>
                     </div>
@@ -2045,7 +2070,7 @@ export default function ClientDashboard() {
                     </div>
 
                     <div className="space-y-3">
-                      {(viewingReceiptOrder.items || []).map((it: any, iIdx: number) => (
+                      {(viewingReceiptOrder.items || []).map((it, iIdx: number) => (
                         <div 
                           key={iIdx} 
                           className="bg-white dark:bg-stone-900 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex flex-col gap-2"
@@ -2074,7 +2099,7 @@ export default function ClientDashboard() {
                           {/* Personalizaciones */}
                           {((it.removed && it.removed.length > 0) || (it.extras && it.extras.length > 0)) && (
                             <div className="flex flex-wrap gap-1.5 pt-1 pl-10">
-                              {(it.removed || []).map((r: any, rI: number) => (
+                              {(it.removed || []).map((r, rI: number) => (
                                 <span 
                                   key={rI} 
                                   className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400 border border-red-100 dark:border-red-900/40"
@@ -2082,7 +2107,7 @@ export default function ClientDashboard() {
                                   Sin {r.name}
                                 </span>
                               ))}
-                              {(it.extras || []).map((e: any, eI: number) => (
+                              {(it.extras || []).map((e, eI: number) => (
                                 <span 
                                   key={eI} 
                                   className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40"
@@ -2548,7 +2573,7 @@ export default function ClientDashboard() {
                 <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
                   <p className="text-sm text-gray-500 font-medium mb-3">Productos</p>
                   <div className="space-y-3">
-                    {selectedOrderInfo.items.map((item: any, idx: number) => (
+                    {selectedOrderInfo.items.map((item, idx: number) => (
                       <div key={item.id || idx} className="flex justify-between text-sm font-medium">
                         <span className="text-gray-900 dark:text-white">{item.quantity}x {item.name}</span>
                         <span className="text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
@@ -2886,7 +2911,16 @@ export default function ClientDashboard() {
   );
 }
 
-function NavItem({ id, icon: Icon, label, active, set, badge }: any) {
+interface NavItemProps {
+  id: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  active: string;
+  set: (id: string) => void;
+  badge?: number;
+}
+
+function NavItem({ id, icon: Icon, label, active, set, badge }: NavItemProps) {
   const isActive = active === id;
   return (
     <button 
@@ -2906,7 +2940,7 @@ function NavItem({ id, icon: Icon, label, active, set, badge }: any) {
   );
 }
 
-function MobileNavItem({ id, icon: Icon, active, set, badge, label }: any) {
+function MobileNavItem({ id, icon: Icon, active, set, badge, label }: NavItemProps) {
   const isActive = active === id;
   return (
     <button 

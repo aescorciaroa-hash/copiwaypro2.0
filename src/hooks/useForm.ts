@@ -16,7 +16,7 @@ export interface ValidationRules {
     matchFieldMessage?: string;
     mustBeTrue?: boolean;
     mustBeTrueMessage?: string;
-    custom?: (value: any, allValues: any) => string | null;
+    custom?: (value: unknown, allValues: Record<string, unknown>) => string | null;
   };
 }
 
@@ -38,7 +38,7 @@ export function useForm<T extends Record<string, any>>({
 
   // Core field validation function
   const validateField = useCallback(
-    (name: keyof T, value: any, allValues: T): string => {
+    (name: keyof T, value: unknown, allValues: T): string => {
       const rule = validationRules[name as string];
       if (!rule) return '';
 
@@ -211,7 +211,7 @@ export function useForm<T extends Record<string, any>>({
   }, [initialValues]);
 
   const setFieldValue = useCallback(
-    (name: keyof T, value: any) => {
+    (name: keyof T, value: T[keyof T]) => {
       setValues((prev) => {
         const updated = { ...prev, [name]: value };
         if (touched[name]) {

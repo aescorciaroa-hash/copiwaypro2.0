@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { api } from '../servicios/api';
 
+export interface ProductComponent {
+  id?: string;
+  name: string;
+  cost?: number;
+  quantity?: number;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -8,8 +15,8 @@ export interface Product {
   price: number;
   active: boolean;
   image?: string;
-  ingredients?: any[];
-  packaging?: any[];
+  ingredients?: ProductComponent[];
+  packaging?: ProductComponent[];
   category?: string;
   prepTime?: number;
   badge?: string;
@@ -57,6 +64,27 @@ export interface Staff {
   baseCash?: number;
 }
 
+export interface NamedRef {
+  id: string;
+  name: string;
+}
+
+export interface OrderItem {
+  id?: string;
+  product?: Product;
+  productId?: string;
+  name?: string;
+  quantity?: number;
+  price?: number;
+  basePrice?: number;
+  finalPrice?: number;
+  isCustom?: boolean;
+  stack?: NamedRef[];
+  extras?: NamedRef[];
+  removed?: NamedRef[];
+  modifications?: string[];
+}
+
 export interface Order {
   paymentMethod?: string;
   paymentStatus?: string;
@@ -68,7 +96,7 @@ export interface Order {
   driverVehicle?: string;
   deliveryPin?: string;
   total: number;
-  items: any[];
+  items: OrderItem[];
   address: string;
   date: string;
   rating?: number;
@@ -80,6 +108,8 @@ export interface Order {
   discount?: number;
   pointsEarned?: number;
   time?: string;
+  lat?: number;
+  lng?: number;
 }
 
 export interface Ingredient {
@@ -111,7 +141,8 @@ export interface Client {
   lastOrderDate?: string;
   notifications?: Notification[];
   birthday?: string;
-  cart?: any[];
+  /** Carrito del cliente, con la forma que use la UI de ClientDashboard (CartItem). */
+  cart?: unknown[];
   preferences?: {
     theme?: string;
     soundEnabled?: boolean;
@@ -200,19 +231,19 @@ const STATUS_TO_ENDPOINT: Record<string, string> = {
 };
 
 /** Traduce un ítem del carrito de ClientDashboard al contrato que espera POST /api/orders. */
-function toApiOrderItem(item: any) {
+function toApiOrderItem(item: OrderItem) {
   const quantity = item.quantity || 1;
 
   if (item.isCustom && (item.stack || item.extras) && !item.product) {
-    const stack = (item.stack || item.extras || []).map((ing: any) => ({ id: ing.id, name: ing.name }));
+    const stack = (item.stack || item.extras || []).map((ing: NamedRef) => ({ id: ing.id, name: ing.name }));
     return { quantity, stack };
   }
 
   return {
     productId: item.product?.id || item.productId || item.id,
     quantity,
-    extras: (item.extras || []).map((e: any) => ({ id: e.id, name: e.name })),
-    removed: (item.removed || []).map((r: any) => ({ id: r.id, name: r.name })),
+    extras: (item.extras || []).map((e: NamedRef) => ({ id: e.id, name: e.name })),
+    removed: (item.removed || []).map((r: NamedRef) => ({ id: r.id, name: r.name })),
   };
 }
 

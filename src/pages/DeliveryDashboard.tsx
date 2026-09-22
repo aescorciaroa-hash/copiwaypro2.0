@@ -20,7 +20,7 @@ const RoutePolyline = ({ origin, destination, outerColor, innerColor, onRouteLoa
       .then(res => res.json())
       .then(data => {
         if (data.routes && data.routes[0]) {
-          const coords = data.routes[0].geometry.coordinates.map((c: any) => [c[1], c[0]]);
+          const coords = data.routes[0].geometry.coordinates.map((c: [number, number]) => [c[1], c[0]]);
           setPositions(coords);
           if (onRouteLoaded) onRouteLoaded(coords);
         }
@@ -106,7 +106,7 @@ export default function DeliveryDashboard() {
     (isAvailable || acceptedOrders.includes(o.id) || o.status === 'En Camino')
   );
 
-  const [activeRoute, setActiveRoute] = useState<any | null>(null);
+  const [activeRoute, setActiveRoute] = useState<Order | null>(null);
 
   const [mapCenter, setMapCenter] = useState<[number, number]>([2.9273, -75.2818]);
   const [destCoords, setDestCoords] = useState<[number, number] | null>(null);
@@ -636,7 +636,7 @@ export default function DeliveryDashboard() {
             deliveries.map(order => {
               const isAccepted = acceptedOrders.includes(order.id);
               const isActive = activeRoute?.id === order.id;
-              const isOnlinePayment = (order as any).paymentMethod === 'online' || (order as any).paymentStatus === 'Pagado' || (order as any).status === 'Pagado'; // Fallback logic
+              const isOnlinePayment = order.paymentMethod === 'online' || order.paymentStatus === 'Pagado' || order.status === 'Pagado'; // Fallback logic
               
               return (
                 <div 
@@ -679,7 +679,7 @@ export default function DeliveryDashboard() {
                   {/* Order items preview */}
                   {order.items && order.items.length > 0 && (
                     <div className="mb-3.5 p-2.5 rounded-xl bg-gray-50 dark:bg-stone-800/60 border border-gray-100 dark:border-stone-800 text-xs text-gray-600 dark:text-stone-300 space-y-1">
-                      {order.items.map((it: any, iIdx: number) => (
+                      {order.items.map((it: { quantity?: number; name?: string; finalPrice?: number; price?: number }, iIdx: number) => (
                         <div key={iIdx} className="flex justify-between items-center">
                           <span className="font-semibold">{it.quantity}x {it.name}</span>
                           <span className="text-[11px] text-gray-400">{formatCOP(it.finalPrice || it.price || 0)}</span>

@@ -99,7 +99,7 @@ export default function Register() {
         }
         if (err instanceof ApiError && err.errors) {
           const firstField = Object.keys(err.errors)[0];
-          if (firstField) setFieldError(firstField as any, err.errors[firstField][0]);
+          if (firstField) setFieldError(firstField as keyof typeof values, err.errors[firstField][0]);
           return;
         }
         setFieldError('email', err instanceof ApiError ? err.message : 'No se pudo completar el registro.');
@@ -341,7 +341,7 @@ export default function Register() {
                   <CustomDatePicker 
                     name="nacimiento"
                     value={values.nacimiento}
-                    onChange={handleChange as any}
+                    onChange={handleChange as unknown as (e: { target: { name: string; value: string } }) => void}
                     className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] px-4 py-3 text-sm outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 ${
                       errors.nacimiento && touched.nacimiento 
                         ? 'border-red-500' 
