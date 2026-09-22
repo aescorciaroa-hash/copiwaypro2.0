@@ -45,6 +45,8 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
         'pointsEarned' => (int) $fila['puntos_ganados'],
         'items' => $items,
         'address' => $fila['direccion_entrega'],
+        'lat' => $fila['destino_lat'] !== null ? (float) $fila['destino_lat'] : null,
+        'lng' => $fila['destino_lng'] !== null ? (float) $fila['destino_lng'] : null,
         'date' => $fila['fecha_hora'],
         'time' => date('H:i', strtotime($fila['fecha_hora'])),
         'paymentMethod' => $fila['metodo_pago'] === 'efectivo' ? 'cash' : 'online',
