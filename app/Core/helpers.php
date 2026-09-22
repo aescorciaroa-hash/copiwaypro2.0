@@ -83,15 +83,22 @@ function configurarSeguridadHttp() {
     // app/Views/layouts/cabecera.php usa para inyectar window.__APP_BASE__/
     // __DATOS__ (rompe TODA la navegacion: rutaBase() queda vacio y cada link
     // pierde el prefijo de subcarpeta), los estilos inline que React/lucide-
-    // react aplican via el atributo style, la hoja de Google Fonts y las
-    // imagenes de producto servidas desde Unsplash. curl nunca lo detecto
-    // porque no ejecuta JS ni aplica CSP -- solo aparece en un navegador real.
+    // react aplican via el atributo style, la hoja de Google Fonts, las
+    // imagenes de producto servidas desde Unsplash, y los tiles del mapa
+    // (Leaflet + CARTO, {s}.basemaps.cartocdn.com -- {s} es un subdominio
+    // variable de CARTO, de ahi el comodin). curl nunca lo detecto porque no
+    // ejecuta JS ni aplica CSP -- solo aparece en un navegador real.
+    // connect-src: los paneles de admin/domiciliario hacen fetch() directo
+    // (sin pasar por el backend PHP) a OSRM (trazar la ruta en el mapa) y a
+    // Nominatim (geocodificar la direccion del pedido a lat/lng). Sin esto,
+    // default-src 'self' tambien bloquearia esas llamadas.
     header(
         "Content-Security-Policy: default-src 'self'; " .
         "script-src 'self' 'unsafe-inline'; " .
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " .
         "font-src 'self' https://fonts.gstatic.com; " .
-        "img-src 'self' data: https://images.unsplash.com"
+        "img-src 'self' data: https://images.unsplash.com https://*.basemaps.cartocdn.com; " .
+        "connect-src 'self' https://router.project-osrm.org https://nominatim.openstreetmap.org"
     );
 
     $origen = $_SERVER['HTTP_ORIGIN'] ?? '';
