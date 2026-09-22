@@ -210,6 +210,12 @@ function responderError($mensaje, $codigo = 400, $detalles = []) {
 
 /** Incluye una vista PHP de app/Views/paginas, con $datos disponibles como variables. */
 function mostrarVista($vista, $datos = []) {
+    // Cada pagina lleva horneado window.__APP_BASE__/__DATOS__ (sesion, CSRF)
+    // en el HTML mismo; si el navegador la cachea, esos valores quedan
+    // desactualizados (p.ej. rutaBase() vacia -> "Ingresar" navega a /login
+    // sin el prefijo de subcarpeta). Nunca cachear el documento HTML.
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+    header('Pragma: no-cache');
     extract($datos);
     $ruta = dirname(__DIR__) . '/Views/paginas/' . $vista . '.php';
     if (!is_file($ruta)) {

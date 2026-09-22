@@ -1,7 +1,28 @@
+import fs from 'fs';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig, loadEnv} from 'vite';
+import {defineConfig, loadEnv, Plugin} from 'vite';
+
+// Vite siempre escribe una copia transformada de index.html en outDir (es su
+// entrada de build por defecto) -- pero esa index.html es solo la plantilla
+// de "npm run dev" y NUNCA debe servirse en produccion: no tiene data-pagina
+// ni window.__APP_BASE__/__DATOS__ (eso lo inyecta app/Views/layouts/cabecera.php).
+// Si queda en public/, Apache puede preferirla sobre index.php al resolver el
+// directory index, rompiendo rutaBase() (login sin el prefijo de subcarpeta,
+// 404). Se borra despues de cada build para que public/ solo tenga el front
+// controller PHP + los assets compilados.
+function borrarIndexHtmlDelBuild(outDir: string): Plugin {
+  return {
+    name: 'borrar-index-html-post-build',
+    closeBundle() {
+      const destino = path.resolve(outDir, 'index.html');
+      if (fs.existsSync(destino)) {
+        fs.unlinkSync(destino);
+      }
+    },
+  };
+}
 
 export default defineConfig(({mode}) => {
   // Lee el mismo .env que usa el backend PHP (sin prefijo VITE_ obligatorio),
@@ -10,7 +31,7 @@ export default defineConfig(({mode}) => {
 
   return {
     base: './',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), borrarIndexHtmlDelBuild('public')],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
