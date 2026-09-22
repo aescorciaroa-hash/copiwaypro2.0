@@ -85,7 +85,9 @@ class AuthController {
             (new CodigoVerificacion($conn))->crearParaCliente($idCliente, $codigo);
 
             // TODO Fase futura: enviar $codigo real por correo/SMS via un proveedor.
-            if (env('APP_DEBUG', false)) {
+            // Solo en entorno local: nunca exponer el codigo en staging/produccion,
+            // ni siquiera si APP_DEBUG quedo mal configurado a true por error.
+            if (env('APP_ENV', 'production') === 'local') {
                 responderJson(['ok' => true, 'debugCode' => $codigo]);
             }
         }
