@@ -50,6 +50,10 @@ class ClientController {
             $datos = array_intersect_key($datos, array_flip($permitidos));
         }
 
+        if (!empty($datos['email']) && correoUsadoEnCualquierTabla($conn, $datos['email'], $id)) {
+            responderError('Ya existe una cuenta con ese correo.', 409);
+        }
+
         $clienteModelo->actualizar($id, $datos);
         responderJson($clienteModelo->buscar($id));
     }

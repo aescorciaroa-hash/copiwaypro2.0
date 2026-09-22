@@ -49,7 +49,7 @@ class AuthController {
         $telefono = trim((string) $datos['phone']);
 
         $clienteModelo = new Cliente($conn);
-        if ($clienteModelo->correoOTelefonoExiste($email, $telefono)) {
+        if ($clienteModelo->correoOTelefonoExiste($email, $telefono) || correoUsadoEnCualquierTabla($conn, $email)) {
             responderError('Ya existe una cuenta con ese correo o teléfono.', 409);
         }
 

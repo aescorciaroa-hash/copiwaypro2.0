@@ -10,6 +10,7 @@
  */
 
 require __DIR__ . '/../config/database.php';
+require __DIR__ . '/../app/Core/helpers.php';
 require __DIR__ . '/../app/Models/Usuario.php';
 
 function prompt($etiqueta, $oculto = false) {
@@ -43,6 +44,11 @@ if (!$programador) {
         exit(1);
     }
 
+    if (correoUsadoEnCualquierTabla($conn, $correoProgramador)) {
+        fwrite(STDERR, "Ya existe una cuenta con ese correo.\n");
+        exit(1);
+    }
+
     $programador = $usuarioModelo->crear([
         'nombre' => $nombre,
         'correo' => $correoProgramador,
@@ -65,8 +71,8 @@ if (strlen($passwordAdmin) < 8) {
     exit(1);
 }
 
-if ($usuarioModelo->esUsado($correoAdmin, $telefonoAdmin)) {
-    fwrite(STDERR, "Ya existe un administrador con ese correo o teléfono.\n");
+if ($usuarioModelo->esUsado($correoAdmin, $telefonoAdmin) || correoUsadoEnCualquierTabla($conn, $correoAdmin)) {
+    fwrite(STDERR, "Ya existe una cuenta con ese correo o teléfono.\n");
     exit(1);
 }
 

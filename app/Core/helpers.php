@@ -103,6 +103,41 @@ function generarUuid() {
     return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($datos), 4));
 }
 
+/**
+ * El correo debe ser unico entre las 4 tablas de cuentas (ADMINISTRADOR,
+ * AYUDANTE_COCINA, DOMICILIARIO, CLIENTE), no solo dentro de cada una: cada
+ * tabla tiene su propio UNIQUE en correo, pero eso no impide que el mismo
+ * correo se registre en dos tablas distintas (ambiguedad al hacer login).
+ * $excluirId ignora la propia fila al actualizar (los IDs son UUID, unicos
+ * entre tablas en la practica, asi que basta con excluir por id sin importar
+ * en cual de las 4 tablas caiga).
+ */
+function correoUsadoEnCualquierTabla($conn, $correo, $excluirId = null) {
+    $tablas = [
+        'ADMINISTRADOR'   => 'id_admin',
+        'AYUDANTE_COCINA' => 'id_ayudante',
+        'DOMICILIARIO'    => 'id_domiciliario',
+        'CLIENTE'         => 'id_cliente',
+    ];
+    foreach ($tablas as $tabla => $columnaId) {
+        $sql = "SELECT $columnaId FROM $tabla WHERE correo = ?";
+        $parametros = [$correo];
+        if ($excluirId !== null) {
+            $sql .= " AND $columnaId != ?";
+            $parametros[] = $excluirId;
+        }
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param(str_repeat('s', count($parametros)), ...$parametros);
+        $stmt->execute();
+        $fila = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($fila) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /** Guarda un aviso para mostrar en la siguiente pantalla (login, formularios, etc.). */
 function mensaje($tipo, $titulo, $texto) {
     $_SESSION['_flash'] = ['tipo' => $tipo, 'titulo' => $titulo, 'texto' => $texto];

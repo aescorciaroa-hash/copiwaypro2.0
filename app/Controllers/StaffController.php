@@ -35,6 +35,10 @@ class StaffController {
             responderError('Datos inválidos.', 422, $errores);
         }
 
+        if (correoUsadoEnCualquierTabla($conn, $datos['email'])) {
+            responderError('Ya existe una cuenta con ese correo.', 409);
+        }
+
         $auth = new Autenticacion($conn);
         $personalModelo = new Personal($conn);
 
@@ -55,6 +59,9 @@ class StaffController {
 
         if (!empty($datos['password']) && strlen((string) $datos['password']) < 8) {
             responderError('Datos inválidos.', 422, ['password' => ['El campo password debe tener al menos 8 caracteres.']]);
+        }
+        if (!empty($datos['email']) && correoUsadoEnCualquierTabla($conn, $datos['email'], $id)) {
+            responderError('Ya existe una cuenta con ese correo.', 409);
         }
 
         $personalModelo = new Personal($conn);
