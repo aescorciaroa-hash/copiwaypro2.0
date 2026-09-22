@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -11,7 +10,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { formatCOP } from '../lib/format';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA } from '../servicios/api';
 
 const RoutePolyline = ({ origin, destination, outerColor, innerColor, onRouteLoaded }: { origin: [number, number], destination: [number, number], outerColor: string, innerColor: string, onRouteLoaded?: (coords: [number, number][]) => void }) => {
   const [positions, setPositions] = React.useState<[number, number][]>([]);
@@ -78,8 +77,7 @@ const CustomZoomControl = () => {
 };
 
 export default function DeliveryDashboard() {
-  const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
+    const { theme, toggleTheme } = useTheme();
 
   const { orders, updateOrder, updateOrderStatus, staff, updateStaff, confirmDelivery } = useStore();
 
@@ -241,7 +239,7 @@ export default function DeliveryDashboard() {
         setIsLoggedIn(false);
         setUsername('');
         setPassword('');
-        navigate('/login');
+        irA('/login');
       }
     });
   };
@@ -386,7 +384,7 @@ export default function DeliveryDashboard() {
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
-                onClick={() => navigate('/login')}
+                onClick={() => irA('/login')}
                 className="flex-1 h-14 bg-gray-100 dark:bg-stone-800 text-gray-700 dark:text-stone-300 rounded-2xl font-bold hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors flex items-center justify-center gap-2"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -545,7 +543,7 @@ export default function DeliveryDashboard() {
       {/* Cabecera Móvil - Solo visible en celulares */}
       <header className="md:hidden px-6 py-3 border-b border-gray-100 dark:border-stone-800/50 flex flex-col shrink-0 bg-white dark:bg-[#151515] z-30 shadow-sm">
           <div className="flex justify-between items-center mb-2">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => irA('/')}>
               <div className="w-8 h-8 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
                 <Navigation className="w-4 h-4 text-white" />
               </div>
@@ -589,7 +587,7 @@ export default function DeliveryDashboard() {
         {/* Cabecera Desktop - Solo visible en laptops */}
         <header className="hidden md:flex px-8 py-5 border-b border-gray-50 dark:border-stone-800/50 flex-col shrink-0 sticky top-0 bg-white dark:bg-[#151515] z-10">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => irA('/')}>
               <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
                 <Navigation className="w-5 h-5 text-white" />
               </div>

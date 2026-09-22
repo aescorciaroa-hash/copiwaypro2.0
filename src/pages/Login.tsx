@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2, Check, Mail } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA, rutaBase } from '../servicios/api';
 
 export default function Login() {
-  const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -62,7 +60,7 @@ export default function Login() {
             delivery: '/delivery',
             client: '/client',
           };
-          navigate(routes[user.role] || '/client');
+          irA(routes[user.role] || '/client');
         }, 1500);
       } catch (err) {
         setLoginError(err instanceof ApiError ? err.message : 'No se pudo iniciar sesión. Intenta de nuevo.');
@@ -124,10 +122,10 @@ export default function Login() {
           </div>
 
           <div className="relative z-10">
-            <Link to="/" className="inline-flex items-center gap-2 font-bold text-xl text-white mb-20 hover:text-brand-orange transition-colors">
+            <a href={rutaBase() + '/'} className="inline-flex items-center gap-2 font-bold text-xl text-white mb-20 hover:text-brand-orange transition-colors">
               <Utensils className="w-6 h-6 flex-shrink-0 text-brand-orange" />
               <span>CopiwayPRO</span>
-            </Link>
+            </a>
 
             <h1 className="text-5xl font-bold leading-[1.15] mb-6 tracking-normal">
               El Corazón de tu <br/><span className="text-brand-orange">Cocina</span>
@@ -154,9 +152,9 @@ export default function Login() {
         <div className="w-full lg:w-1/2 flex items-center justify-center bg-white dark:bg-stone-900 p-6 md:p-12 lg:p-16 transition-colors duration-100">
           
           <div className="w-full max-w-md">
-            <Link to="/" className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-12 font-medium transition-colors">
+            <a href={rutaBase() + '/'} className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-12 font-medium transition-colors">
               <ArrowLeft className="w-4 h-4" /> Volver al inicio
-            </Link>
+            </a>
 
             <h2 className="text-3xl font-bold tracking-normal tracking-normal text-gray-900 dark:text-white mb-2 transition-colors duration-100">Iniciar Sesión</h2>
             <p className="text-gray-500 dark:text-stone-400 text-sm mb-10 transition-colors duration-100">Ingresa tus credenciales para continuar</p>
@@ -217,7 +215,7 @@ export default function Login() {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-sm font-semibold text-gray-700 dark:text-stone-300 transition-colors duration-100">Contraseña</label>
-                  <Link to="/forgot-password" className="text-sm font-medium text-brand-orange hover:text-[#e66500] transition-colors">¿Olvidaste tu contraseña?</Link>
+                  <a href={rutaBase() + '/forgot-password'} className="text-sm font-medium text-brand-orange hover:text-[#e66500] transition-colors">¿Olvidaste tu contraseña?</a>
                 </div>
                 <div className="relative group">
                   <input 
@@ -287,9 +285,9 @@ export default function Login() {
             <div className="mt-12 text-center text-sm">
               <span className="text-gray-500 dark:text-stone-400 transition-colors duration-100">¿Aún no tienes una cuenta?</span>
               <br />
-              <Link to="/register" className="font-semibold text-brand-dark dark:text-stone-200 hover:text-brand-orange dark:hover:text-brand-orange transition-colors mt-2 inline-block">
+              <a href={rutaBase() + '/register'} className="font-semibold text-brand-dark dark:text-stone-200 hover:text-brand-orange dark:hover:text-brand-orange transition-colors mt-2 inline-block">
                 Regístrate como cliente <ArrowRight className="w-4 h-4 inline-block ml-1 align-text-bottom" />
-              </Link>
+              </a>
             </div>
           </div>
         </div>

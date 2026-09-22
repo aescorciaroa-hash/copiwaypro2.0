@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, rutaBase } from '../servicios/api';
 
 export default function ForgotPassword() {
-  const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -108,10 +106,10 @@ export default function ForgotPassword() {
             <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/80 to-zinc-950/60"></div>
           </div>
           <div className="relative z-10">
-            <Link to="/" className="inline-flex items-center gap-2 font-bold text-xl text-white mb-20 hover:text-brand-orange transition-colors">
+            <a href={rutaBase() + '/'} className="inline-flex items-center gap-2 font-bold text-xl text-white mb-20 hover:text-brand-orange transition-colors">
               <Utensils className="w-6 h-6 flex-shrink-0 text-brand-orange" />
               <span>CopiwayPRO</span>
-            </Link>
+            </a>
             <h1 className="text-5xl font-bold leading-[1.15] mb-6 tracking-normal">
               El Corazón de tu <br/><span className="text-brand-orange">Cocina</span>
             </h1>
@@ -134,9 +132,9 @@ export default function ForgotPassword() {
 
         <div className="w-full lg:w-1/2 flex items-center justify-center bg-white dark:bg-stone-900 p-6 md:p-12 lg:p-16 transition-colors duration-100">
           <div className="w-full max-w-md">
-            <Link to="/login" className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-12 font-medium transition-colors">
+            <a href={rutaBase() + '/login'} className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-12 font-medium transition-colors">
               <ArrowLeft className="w-4 h-4" /> Volver a iniciar sesión
-            </Link>
+            </a>
             
             <h2 className="text-3xl font-bold tracking-normal text-gray-900 dark:text-white mb-2 transition-colors duration-100">Recuperar Contraseña</h2>
             <p className="text-gray-500 dark:text-stone-400 text-sm mb-10 transition-colors duration-100">
@@ -268,12 +266,12 @@ export default function ForgotPassword() {
             )}
 
             {resetSuccess && (
-              <Link 
-                to="/login"
+              <a
+                href={rutaBase() + '/login'}
                 className="w-full mt-6 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-[20px] py-4 font-bold tracking-wide flex items-center justify-center gap-2 hover:-translate-y-0.5 transition-all duration-100"
               >
                 Volver a iniciar sesión
-              </Link>
+              </a>
             )}
 
           </div>

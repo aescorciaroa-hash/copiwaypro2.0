@@ -108,8 +108,15 @@ class Pedido {
         return $fila ?: null;
     }
 
+    /**
+     * Extrae el numero solo si $idVisible tiene el formato "#ORD-123" (el id
+     * que ve el frontend). Un UUID interno (id_pedido) tambien termina en
+     * digitos, asi que un patron laxo de "digitos al final" coincidia por
+     * accidente con OTRO pedido via numero_pedido en la consulta OR de
+     * buscar()/buscarCrudo() -- bug real, devolvia datos del pedido equivocado.
+     */
     private function numeroDesdeId($idVisible) {
-        if (preg_match('/(\d+)$/', $idVisible, $m)) {
+        if (preg_match('/^#ORD-(\d+)$/', $idVisible, $m)) {
             return (int) $m[1];
         }
         return 0;

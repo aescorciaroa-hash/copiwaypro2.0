@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { motion, AnimatePresence } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, CircleMarker, useMap } from 'react-leaflet';
@@ -16,7 +15,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { formatCOP } from '../lib/format';
 
 import { useStore, DEFAULT_MENU_CATEGORIES } from '../store/almacenAplicacion';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA } from '../servicios/api';
 import { CustomSelect } from '../components/CustomSelect';
 import { TimePickerModal } from '../components/TimePickerModal';
 import { generateCierrePDF } from '../utils/generarCierrePdf';
@@ -98,8 +97,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 
 export default function AdminDashboard() {
   const { theme, toggleTheme } = useTheme();
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('overview');
+    const [activeTab, setActiveTab] = useState('overview');
   const [highlightedOrderId, setHighlightedOrderId] = useState<string | null>(null);
   const mainContentRef = useRef<HTMLDivElement | null>(null);
 
@@ -625,7 +623,7 @@ export default function AdminDashboard() {
         api.post('/auth/logout').catch(() => {});
         showToast('warning', 'Cerraste sesión en el panel de administrador.', 'Sesión Finalizada');
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
-        navigate('/login');
+        irA('/login');
       }
     });
   };

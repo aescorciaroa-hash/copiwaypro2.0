@@ -1,13 +1,11 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 import { ArrowLeft, Users, CheckCircle2, Sun, Moon, AlertCircle, Check, User, Mail, Phone, Lock, UserPlus } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA, rutaBase } from '../servicios/api';
 
 export default function Register() {
-  const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
@@ -92,7 +90,7 @@ export default function Register() {
         setSubmitSuccess(true);
         setTimeout(() => {
           setSubmitSuccess(false);
-          navigate('/client');
+          irA('/client');
         }, 1500);
       } catch (err) {
         if (err instanceof ApiError && err.status === 409) {
@@ -200,9 +198,9 @@ export default function Register() {
         <div className="w-full lg:w-[55%] flex items-center justify-center bg-white dark:bg-stone-900 p-6 md:p-12 lg:p-16 transition-colors duration-100">
           
           <div className="w-full max-w-lg">
-            <Link to="/" className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-10 font-medium transition-colors">
+            <a href={rutaBase() + '/'} className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-stone-400 hover:text-brand-dark dark:hover:text-brand-orange mb-10 font-medium transition-colors">
               <ArrowLeft className="w-4 h-4" /> Volver al inicio
-            </Link>
+            </a>
 
             <h2 className="text-3xl font-bold tracking-normal tracking-normal text-gray-900 dark:text-white mb-2 transition-colors duration-100">Crear Cuenta</h2>
             <p className="text-gray-500 dark:text-stone-400 text-sm mb-10 transition-colors duration-100">Regístrate para pedir en Copiway.</p>
@@ -469,7 +467,7 @@ export default function Register() {
 
             <div className="mt-10 text-center text-sm">
               <span className="text-gray-500 dark:text-stone-400">¿Ya tienes una cuenta registrada? </span>
-              <Link to="/login" className="font-semibold text-brand-dark dark:text-stone-200 hover:text-brand-orange transition-colors">Inicia sesión aquí</Link>
+              <a href={rutaBase() + '/login'} className="font-semibold text-brand-dark dark:text-stone-200 hover:text-brand-orange transition-colors">Inicia sesión aquí</a>
             </div>
           </div>
         </div>

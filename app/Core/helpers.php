@@ -251,6 +251,10 @@ function despacharRuta($metodo, $ruta) {
         }
 
         array_shift($coincidencias);
+        // Los parametros de ruta vienen tal cual el navegador los mando en la
+        // URL (p.ej. "%23ORD-4" para "#ORD-4"); se decodifican aqui, una sola
+        // vez, para que los controladores/modelos siempre reciban el valor real.
+        $coincidencias = array_map('urldecode', $coincidencias);
         $instancia = new $controlador();
         call_user_func_array([$instancia, $accion], $coincidencias);
         return;
@@ -285,32 +289,3 @@ function despacharPagina($ruta) {
     $instancia->$accion();
 }
 
-/**
- * Sirve el bundle de React (public/index.html, compilado por Vite) inyectando
- * window.__APP_BASE__ y window.__DATOS__ (usuario en sesion, rol, csrfToken,
- * configuracion de la tienda) ANTES de los scripts. El componente montado es
- * el mismo para toda la SPA, asi que el diseño no cambia entre paginas; lo
- * unico que cambia es que datos ya vienen listos sin una llamada extra.
- */
-function renderizarSpa($datos) {
-    $rutaIndex = dirname(__DIR__, 2) . '/public/index.html';
-    if (!is_file($rutaIndex)) {
-        http_response_code(500);
-        echo 'El frontend aun no ha sido compilado. Ejecuta: npm install && npm run build';
-        exit;
-    }
-
-    $html = file_get_contents($rutaIndex);
-
-    $datosJson = json_encode($datos, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
-    $baseJson = json_encode(rutaBase());
-    $inyeccion = "<script>window.__APP_BASE__=$baseJson;window.__DATOS__=$datosJson;</script>\n";
-    $html = preg_replace('#(<head[^>]*>)#i', '$1' . "\n" . $inyeccion, $html, 1);
-    if ($html === null) {
-        $html = $inyeccion . file_get_contents($rutaIndex);
-    }
-
-    header('Content-Type: text/html; charset=utf-8');
-    echo $html;
-    exit;
-}

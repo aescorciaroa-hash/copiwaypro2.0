@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Utensils, ArrowRight, Sun, Moon, Menu, X } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { rutaBase } from '../servicios/api';
 
 export default function Navbar() {
   const { theme, toggleTheme } = useTheme();
@@ -24,11 +24,11 @@ export default function Navbar() {
 
         {/* Header content bar */}
         <div className={`w-full flex items-center justify-between ${isOpen ? 'pb-4 border-b border-white/5' : 'h-full'}`}>
-          <Link 
-            to="/" 
+          <a
+            href={rutaBase() + '/'}
             onClick={(e) => {
               handleLinkClick();
-              if (window.location.pathname === '/') {
+              if (window.location.pathname === rutaBase() + '/' || window.location.pathname === '/') {
                 e.preventDefault();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }
@@ -40,7 +40,7 @@ export default function Navbar() {
               <div className="absolute inset-0 bg-brand-orange blur-md opacity-50 rounded-full"></div>
             </div>
             <span className="tracking-normal text-white">CopiwayPRO</span>
-          </Link>
+          </a>
           
           {/* Desktop links */}
           <div className="hidden md:flex items-center gap-8 text-gray-400 font-medium text-sm">
@@ -78,14 +78,14 @@ export default function Navbar() {
             </button>
 
             {/* Desktop only CTA */}
-            <Link 
-              to="/login"
+            <a
+              href={rutaBase() + '/login'}
               className="hidden md:flex relative overflow-hidden bg-brand-orange text-white px-6 py-2.5 rounded-full font-bold text-sm items-center gap-2 hover:shadow-[0_0_25px_rgba(255,112,0,0.6)] hover:-translate-y-0.5 transition-all duration-300 active:scale-95 group/btn"
             >
               <div className="absolute inset-0 bg-white/20 translate-y-full group-hover/btn:translate-y-0 transition-transform duration-300 ease-out"></div>
-              <span className="relative z-10 tracking-wide">Ingresar</span> 
+              <span className="relative z-10 tracking-wide">Ingresar</span>
               <ArrowRight className="w-4 h-4 relative z-10 group-hover/btn:translate-x-1 transition-transform duration-300" />
-            </Link>
+            </a>
 
             {/* Mobile menu Toggle Hamburger (hidden on md+) */}
             <button
@@ -137,14 +137,14 @@ export default function Navbar() {
               </a>
             </div>
             
-            <Link 
-              to="/login"
+            <a
+              href={rutaBase() + '/login'}
               onClick={handleLinkClick}
               className="relative overflow-hidden bg-brand-orange text-white w-full py-3 rounded-[20px] font-bold text-sm flex items-center justify-center gap-1.5 shadow-[0_4px_15px_rgba(255,112,0,0.3)] hover:shadow-[0_4px_25px_rgba(255,112,0,0.6)] transition-all duration-300 active:scale-95 group/btn mt-1"
             >
               <span className="relative z-10 tracking-wide">Ingresar</span>
               <ArrowRight className="w-4 h-4 relative z-10 group-hover/btn:translate-x-1 transition-transform duration-300" />
-            </Link>
+            </a>
           </div>
         )}
       </nav>

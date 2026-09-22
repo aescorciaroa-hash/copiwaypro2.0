@@ -1,12 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store/almacenAplicacion';
-import { api, fetchSync, setCsrfToken } from '../lib/apiBackend';
+import { api, fetchSync, setCsrfToken } from '../servicios/api';
 
 const POLL_INTERVAL_MS = 2500;
 
 /**
  * Sustituye los onSnapshot de Firestore por polling corto con ETag contra
- * /api/sync (ver src/lib/api.ts: fetchSync). Mantiene el mismo nombre y
+ * /api/sync (ver src/servicios/api.ts: fetchSync). Mantiene el mismo nombre y
  * posición en el árbol que el componente original, y llena el store
  * exactamente igual que antes — solo cambia el origen de los datos.
  */
@@ -22,11 +22,18 @@ export default function FirebaseSync() {
   useEffect(() => {
     stoppedRef.current = false;
 
-    // Al montar, si ya hay una cookie de sesión válida, recupera el token CSRF
-    // en memoria (se pierde en cada recarga de página porque vive solo en JS).
-    api.get<{ csrfToken: string }>('/auth/me')
-      .then(res => setCsrfToken(res.csrfToken))
-      .catch(() => { /* sin sesión activa: normal para visitantes/landing */ });
+    // window.__DATOS__ (inyectado por el layout PHP) ya trae el csrfToken y la
+    // configuración de la tienda listos; evita la llamada extra a /auth/me que
+    // se hacía aquí antes solo para obtener el token. En "npm run dev" (sin
+    // PHP) no existe, así que se sigue pidiendo el token por API como antes.
+    if (window.__DATOS__) {
+      setCsrfToken(window.__DATOS__.csrfToken);
+      if (window.__DATOS__.settings) setStoreConfig(window.__DATOS__.settings);
+    } else {
+      api.get<{ csrfToken: string }>('/auth/me')
+        .then(res => setCsrfToken(res.csrfToken))
+        .catch(() => { /* sin sesión activa: normal para visitantes/landing */ });
+    }
 
     const poll = async () => {
       if (stoppedRef.current) return;

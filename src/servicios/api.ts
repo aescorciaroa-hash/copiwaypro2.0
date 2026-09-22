@@ -1,16 +1,33 @@
-// Cliente HTTP hacia la API PHP (reemplaza a firebase.ts). Usa cookies de
-// sesión (credentials:'include') en vez de Firebase Auth, y un token CSRF
-// guardado en memoria que se obtiene en cada login/register/me.
+// Cliente HTTP hacia la API PHP. Usa cookies de sesión (credentials:'include')
+// y un token CSRF guardado en memoria.
 
-// window.__APP_BASE__ lo inyecta public/spa.php (ver App\Core\BasePath) con la
+// window.__APP_BASE__ lo inyecta app/Views/layouts/cabecera.php con la
 // subcarpeta real bajo la que corre el sitio (o '' si vive en la raíz). Nunca
 // hay un dominio ni una ruta fija escrita aquí.
 const BASE_URL = (window.__APP_BASE__ || '') + '/api';
 
-let csrfToken: string | null = null;
+// window.__DATOS__ lo inyecta el mismo layout PHP (usuario en sesión, rol,
+// csrfToken, settings de la tienda) para evitar una llamada extra al montar.
+// En "npm run dev" (sin PHP) no existe; el resto del código sigue funcionando
+// igual, solo sin el ahorro de esa primera llamada.
+let csrfToken: string | null = window.__DATOS__?.csrfToken ?? null;
 
 export function setCsrfToken(token: string | null) {
   csrfToken = token;
+}
+
+/** Ruta base bajo la que corre la app (para construir hrefs absolutos). */
+export function rutaBase(): string {
+  return window.__APP_BASE__ || '';
+}
+
+/**
+ * Navega a otra pagina de la app. Sin BrowserRouter no hay cambio de ruta en
+ * memoria: esto es una recarga normal de navegador (cada pantalla la sirve
+ * el backend PHP), igual que hacer clic en un <a href>.
+ */
+export function irA(ruta: string): void {
+  window.location.href = rutaBase() + ruta;
 }
 
 export class ApiError extends Error {

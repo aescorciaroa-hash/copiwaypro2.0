@@ -9,19 +9,17 @@ import {
   ChefHat, Minus, Plus, MessageCircle, Star, Smartphone, Layers, CreditCard, Banknote,
   Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 
 import { formatCOP } from '../lib/format';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 import { useStore } from '../store/almacenAplicacion';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA } from '../servicios/api';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 
 export default function ClientDashboard() {
   const { theme, toggleTheme } = useTheme();
-  const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('catalog');
+    const [activeTab, setActiveTab] = useState('catalog');
   const [showDeliveryNotification, setShowDeliveryNotification] = useState<string | null>(null);
   const [selectedOrderInfo, setSelectedOrderInfo] = useState<any | null>(null);
   const [reviewingOrderId, setReviewingOrderId] = useState<string | null>(null);
@@ -305,7 +303,7 @@ export default function ClientDashboard() {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         // HU-15: Limpieza de seguridad al cerrar sesión
         localStorage.removeItem('olio_cart');
-        navigate('/login');
+        irA('/login');
       }
     });
   };
@@ -2567,7 +2565,7 @@ export default function ClientDashboard() {
       <div className="min-h-screen bg-gray-50/50 dark:bg-stone-950 text-gray-900 dark:text-gray-100 font-sans flex transition-colors duration-300">
       {/* Barra Lateral (Sidebar) */}
       <aside className="w-[280px] bg-white dark:bg-[#151515] border-r border-gray-100 dark:border-stone-800 flex-col hidden md:flex shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-colors duration-300 h-screen sticky top-0">
-        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => navigate('/')}>
+        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => irA('/')}>
           <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
             <Layers className="w-5 h-5 text-white" />
           </div>
@@ -2597,7 +2595,7 @@ export default function ClientDashboard() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50/50 dark:bg-stone-950 pb-20 md:pb-0 min-w-0">
         <header className="h-[70px] md:h-24 border-b border-gray-200 dark:border-white/5 bg-white dark:bg-[#0c0a09] flex items-center justify-between px-4 sm:px-6 md:px-10 shrink-0 sticky top-0 z-50 transition-colors duration-300">
           <div className="flex items-center gap-2">
-            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0 cursor-pointer" onClick={() => navigate('/')}>
+            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0 cursor-pointer" onClick={() => irA('/')}>
               <Layers className="w-4 h-4 text-white" />
             </div>
              {activeTab === 'profile' && <h1 className="text-[18px] md:text-[22px] font-bold text-gray-900 dark:text-white hidden sm:block">Gestión de Cuenta</h1>}

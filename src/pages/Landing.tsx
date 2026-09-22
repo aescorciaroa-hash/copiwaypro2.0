@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { Plus, Minus, ArrowRight, Flame, MapPin, Clock, Utensils, Star, Phone, Mail, ShieldCheck, Send } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { rutaBase } from '../servicios/api';
 import { motion } from 'motion/react';
 import { useTheme } from '../context/ThemeContext';
 import { useStore, DEFAULT_MENU_CATEGORIES } from '../store/almacenAplicacion';
@@ -183,12 +183,12 @@ export default function Landing() {
               transition={{ delay: 0.5, duration: 0.7 }}
               className="flex flex-col sm:flex-row items-center justify-center gap-4"
             >
-              <Link 
-                to="/login"
+              <a
+                href={rutaBase() + '/login'}
                 className="bg-brand-orange text-white px-8 py-4 rounded-full font-semibold flex items-center gap-2 hover:bg-[#e66500] hover:shadow-xl hover:shadow-brand-orange/30 hover:-translate-y-0.5 transition-all w-full sm:w-auto justify-center"
               >
                 Hacer Pedido <ArrowRight className="w-5 h-5" />
-              </Link>
+              </a>
               <a href="#menu" className="bg-white/10 backdrop-blur-md text-white border border-white/30 px-8 py-4 rounded-full font-semibold flex items-center gap-2 hover:bg-white/20 hover:border-white/50 transition-all w-full sm:w-auto justify-center shadow-xl">
                 <Utensils className="w-4 h-4 text-white/80" /> Ver Menú
               </a>
@@ -272,13 +272,13 @@ export default function Landing() {
                   </p>
                   <div className="flex items-center justify-between mt-auto">
                     <span className="font-bold text-[clamp(16px,4vw,20px)] text-brand-orange">{formatCOP(product.price)}</span>
-                    <Link 
-                      to="/login"
+                    <a
+                      href={rutaBase() + '/login'}
                       className="w-10 h-10 bg-brand-orange text-white rounded-full flex items-center justify-center hover:bg-[#e66500] hover:scale-105 transition-transform"
                       title="Pedir"
                     >
                       <Utensils className="w-5 h-5" />
-                    </Link>
+                    </a>
                   </div>
                 </div>
               </div>

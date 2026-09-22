@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -9,14 +8,13 @@ import { ArrowLeft,
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore, Order } from '../store/almacenAplicacion';
 import { soundFx } from '../utils/audio';
-import { api, ApiError } from '../lib/apiBackend';
+import { api, ApiError, irA } from '../servicios/api';
 
 type KitchenOrderStatus = 'Pendiente' | 'En Preparación' | 'Listos' | 'Pagado';
 
 export default function KitchenDashboard() {
   const { theme, toggleTheme } = useTheme();
-  const navigate = useNavigate();
-
+  
   const { orders, updateOrderStatus, inventory, staff } = useStore();
 
   const [time, setTime] = useState(new Date());
@@ -128,7 +126,7 @@ export default function KitchenDashboard() {
         setIsLoggedIn(false);
         setUsername('');
         setPassword('');
-        navigate('/login');
+        irA('/login');
       }
     });
   };
@@ -228,7 +226,7 @@ export default function KitchenDashboard() {
             <div className="flex gap-4 pt-2">
               <button
                 type="button"
-                onClick={() => navigate('/login')}
+                onClick={() => irA('/login')}
                 className="flex-1 h-16 bg-gray-100 dark:bg-stone-800 text-gray-700 dark:text-stone-300 rounded-2xl font-bold hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors flex items-center justify-center gap-2"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -262,7 +260,7 @@ export default function KitchenDashboard() {
       />
       {/* Sidebar - Desktop */}
       <aside className="w-[280px] bg-white dark:bg-[#151515] border-r border-gray-100 dark:border-stone-800 flex-col shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] h-[100dvh] sticky top-0 hidden lg:flex">
-        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => navigate('/')}>
+        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => irA('/')}>
           <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
             <ChefHat className="w-5 h-5 text-white" />
           </div>

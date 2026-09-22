@@ -6,8 +6,9 @@
     <title>CopiwayPRO</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- En produccion PHP genera este div con data-pagina (ver app/Views/layouts).
+         En "npm run dev" usa ?pagina=admin en la URL para elegir la pantalla. -->
+    <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

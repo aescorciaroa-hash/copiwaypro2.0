@@ -25,6 +25,21 @@ export default defineConfig(({mode}) => {
       // (el backend), que Vite NO debe borrar al reconstruir el frontend.
       outDir: 'public',
       emptyOutDir: false,
+      rollupOptions: {
+        output: {
+          // Nombres FIJOS (sin hash) y un solo archivo (sin chunks ni manifest):
+          // la plantilla PHP (app/Views/layouts) referencia estos nombres
+          // directamente y agrega ?v=filemtime() para el cache-busting.
+          entryFileNames: 'assets/main.js',
+          assetFileNames: (info) => {
+            if (info.name && info.name.endsWith('.css')) {
+              return 'assets/main.css';
+            }
+            return 'assets/[name][extname]';
+          },
+          inlineDynamicImports: true,
+        },
+      },
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

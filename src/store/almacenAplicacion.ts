@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../lib/apiBackend';
+import { api } from '../servicios/api';
 
 export interface Product {
   id: string;
