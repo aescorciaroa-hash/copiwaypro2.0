@@ -51,7 +51,7 @@ function quitarRutaBase($path) {
 /** Carga Controllers/Models por nombre de clase, sin Composer. */
 function registrarAutoload() {
     spl_autoload_register(function ($clase) {
-        foreach (['Controllers', 'Models'] as $carpeta) {
+        foreach (['Controllers', 'Models', 'Services'] as $carpeta) {
             $ruta = dirname(__DIR__) . "/$carpeta/$clase.php";
             if (is_file($ruta)) {
                 require $ruta;

@@ -10,7 +10,8 @@ Corre 100% en local con **`localhost`** — sin dominios `.test` obligatorios y 
 /app
   /Controllers   Un controlador por recurso de la API + PaginaController (paginas HTML)
   /Core          helpers.php (rutas, sesion, CSRF, autoload, despacho), Auth.php
-  /Models        Un modelo por tabla (Usuario, Cliente, Producto, Ingrediente, Pedido, Personal, Configuracion, Caja...)
+  /Models        Acceso a datos puro: un modelo por tabla (Usuario, Cliente, Producto, Ingrediente, Pedido, Personal, Configuracion, Caja...) — SQL y shape del JSON, sin decisiones de negocio
+  /Services      Orquestacion de reglas de negocio complejas (PedidoService: checkout/transiciones/resena; CajaService: cierre de caja) — usan su Model para persistir, el Controller los llama en vez del Model cuando la accion muta estado de negocio
   /Views
     /layouts     cabecera.php / pie.php (shell HTML que monta el bundle de React)
     /paginas     Una vista delgada por pantalla (landing, login, admin, cliente, cocina, domiciliario...)
@@ -26,7 +27,9 @@ install.bat      Instala todo (BD, dependencias, build) de un solo paso
 start.bat        Sirve el sitio en http://localhost:8000/ sin Apache
 ```
 
-No hay `namespace`, no hay Composer/autoload de paquetes externos, no hay clases de framework genericas (Router/Request/Response/Validator): las rutas son arrays planos en `config/`, el despacho lo hace `app/Core/helpers.php` (`despacharRuta()` para `/api/*`, `despacharPagina()` para paginas), y cada modelo abre su propia conexion MySQLi (`global $conn`) con un helper `consulta($sql, $parametros)` que infiere el tipo de cada parametro para `bind_param` automaticamente.
+No hay `namespace`, no hay Composer/autoload de paquetes externos, no hay clases de framework genericas (Router/Request/Response/Validator): las rutas son arrays planos en `config/`, el despacho lo hace `app/Core/helpers.php` (`despacharRuta()` para `/api/*`, `despacharPagina()` para paginas), y cada modelo/servicio abre su propia conexion MySQLi (`global $conn`) con un helper `consulta($sql, $parametros)` que infiere el tipo de cada parametro para `bind_param` automaticamente.
+
+**Model vs Service**: la mayoria de los recursos (Producto, Ingrediente, Cliente, Personal, Configuracion...) son tan simples que su Model hace todo — el Controller lo llama directo. Los dos casos con reglas de negocio genuinamente complejas (el checkout de un pedido: horario, precios recalculados en servidor, pago simulado, descuento de inventario transaccional; y el cierre de caja: consolidar efectivo/digital, archivar pedidos, liquidar domiciliarios) tienen su propio Service en `app/Services/` que orquesta esas decisiones y usa el Model correspondiente solo para leer/persistir filas. `Pedido`/`Caja` (Models) nunca deciden nada de negocio; `PedidoService`/`CajaService` nunca escriben SQL fuera de su propia transaccion de orquestacion.
 
 **Flujo de una petición API**: `.htaccess` → `public/index.php` → `despacharRuta()` (lee `config/rutas.php`, exige sesion/rol si aplica) → `Controller::metodo()` → `Model` (MySQLi + prepared statements) → `responderJson()`.
 

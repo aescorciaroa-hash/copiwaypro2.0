@@ -11,7 +11,7 @@ class CashClosingController {
         $auth = new Autenticacion($conn);
 
         try {
-            $reporte = (new Caja($conn))->previsualizar($auth->idActual());
+            $reporte = (new CajaService($conn))->previsualizar($auth->idActual());
             responderJson($reporte);
         } catch (Exception $e) {
             responderError($e->getMessage(), 409);
@@ -24,7 +24,7 @@ class CashClosingController {
         $auth = new Autenticacion($conn);
 
         try {
-            $reporte = (new Caja($conn))->generar($auth->idActual());
+            $reporte = (new CajaService($conn))->generar($auth->idActual());
             responderJson($reporte, 201);
         } catch (Exception $e) {
             responderError($e->getMessage(), 409);

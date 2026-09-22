@@ -37,7 +37,7 @@ class OrderController {
         responderJson($pedido);
     }
 
-    /** Toda la validacion de negocio (horario, pago, inventario) vive en Pedido::crear. */
+    /** Toda la validacion de negocio (horario, pago, inventario) vive en PedidoService::crear. */
     public function store() {
         global $conn;
         $auth = new Autenticacion($conn);
@@ -52,7 +52,7 @@ class OrderController {
         }
 
         try {
-            $pedido = (new Pedido($conn))->crear($auth->idActual(), $datos);
+            $pedido = (new PedidoService($conn))->crear($auth->idActual(), $datos);
             responderJson($pedido, 201);
         } catch (InvalidArgumentException $e) {
             responderError($e->getMessage(), 422);
@@ -71,16 +71,16 @@ class OrderController {
     /** Cocina: Pendiente -> En Preparacion */
     public function markPreparing($id) {
         global $conn;
-        $this->aplicarTransicion($id, function ($pedidoModelo, $idInterno) {
-            $pedidoModelo->marcarPreparando($idInterno);
+        $this->aplicarTransicion($id, function ($pedidoServicio, $idInterno) {
+            $pedidoServicio->marcarPreparando($idInterno);
         });
     }
 
     /** Cocina: -> Listos */
     public function markReady($id) {
         global $conn;
-        $this->aplicarTransicion($id, function ($pedidoModelo, $idInterno) {
-            $pedidoModelo->marcarListo($idInterno);
+        $this->aplicarTransicion($id, function ($pedidoServicio, $idInterno) {
+            $pedidoServicio->marcarListo($idInterno);
         });
     }
 
@@ -88,8 +88,8 @@ class OrderController {
     public function accept($id) {
         global $conn;
         $auth = new Autenticacion($conn);
-        $this->aplicarTransicion($id, function ($pedidoModelo, $idInterno) use ($auth) {
-            $pedidoModelo->aceptarEntrega($idInterno, $auth->idActual());
+        $this->aplicarTransicion($id, function ($pedidoServicio, $idInterno) use ($auth) {
+            $pedidoServicio->aceptarEntrega($idInterno, $auth->idActual());
         });
     }
 
@@ -101,8 +101,8 @@ class OrderController {
         if ($pin === '') {
             responderError('El PIN es obligatorio.', 422);
         }
-        $this->aplicarTransicion($id, function ($pedidoModelo, $idInterno) use ($auth, $pin) {
-            $pedidoModelo->confirmarEntrega($idInterno, $auth->idActual(), $pin);
+        $this->aplicarTransicion($id, function ($pedidoServicio, $idInterno) use ($auth, $pin) {
+            $pedidoServicio->confirmarEntrega($idInterno, $auth->idActual(), $pin);
         });
     }
 
@@ -111,6 +111,7 @@ class OrderController {
         global $conn;
         $auth = new Autenticacion($conn);
         $pedidoModelo = new Pedido($conn);
+        $pedidoServicio = new PedidoService($conn);
 
         $crudo = $pedidoModelo->buscarCrudo($id);
         if (!$crudo || $crudo['id_cliente'] !== $auth->idActual()) {
@@ -127,7 +128,7 @@ class OrderController {
             responderError('La calificación debe estar entre 1 y 5.', 422);
         }
 
-        $pedidoModelo->calificar($crudo['id_pedido'], $puntaje, $textoResena);
+        $pedidoServicio->calificar($crudo['id_pedido'], $puntaje, $textoResena);
 
         responderJson($pedidoModelo->buscar($id, 'client', $auth->idActual()));
     }
@@ -136,13 +137,14 @@ class OrderController {
         global $conn;
         $auth = new Autenticacion($conn);
         $pedidoModelo = new Pedido($conn);
+        $pedidoServicio = new PedidoService($conn);
         $crudo = $pedidoModelo->buscarCrudo($idVisible);
         if (!$crudo) {
             responderError('Pedido no encontrado.', 404);
         }
 
         try {
-            $fn($pedidoModelo, $crudo['id_pedido']);
+            $fn($pedidoServicio, $crudo['id_pedido']);
         } catch (Exception $e) {
             responderError($e->getMessage(), 409);
         }
