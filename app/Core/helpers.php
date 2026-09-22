@@ -281,6 +281,13 @@ function despacharRuta($metodo, $ruta) {
         }
 
         list($controlador, $accion, $roles) = $destino;
+        // CSRF: se aplica a TODAS las rutas de /api/* (verificarCsrf() ya es un
+        // no-op para GET/HEAD/OPTIONS), no solo a las que exigen rol, para
+        // cubrir tambien login/register/forgot-password (mutan estado sin
+        // sesion previa). El token llega al frontend desde la primera carga de
+        // cualquier pagina (PaginaController::render() siempre llama a
+        // csrfToken()), asi que ya esta disponible antes del primer POST.
+        verificarCsrf();
         if (!empty($roles)) {
             requiereRol($roles);
         }
