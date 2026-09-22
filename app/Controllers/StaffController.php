@@ -51,8 +51,14 @@ class StaffController {
 
     public function update($id) {
         global $conn;
+        $datos = $this->entrada();
+
+        if (!empty($datos['password']) && strlen((string) $datos['password']) < 8) {
+            responderError('Datos inválidos.', 422, ['password' => ['El campo password debe tener al menos 8 caracteres.']]);
+        }
+
         $personalModelo = new Personal($conn);
-        $tabla = $personalModelo->actualizar($id, $this->entrada());
+        $tabla = $personalModelo->actualizar($id, $datos);
         if ($tabla === null) {
             responderError('Miembro de staff no encontrado.', 404);
         }
