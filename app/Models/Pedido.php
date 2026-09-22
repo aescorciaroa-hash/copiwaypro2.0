@@ -83,8 +83,17 @@ class Pedido {
         return $pedidos;
     }
 
-    /** Busca por id interno o por numero visible (#ORD-123), sin restriccion de rol. */
-    public function buscar($id) {
+    /**
+     * Busca por id interno o por numero visible (#ORD-123).
+     * $rolQueVe/$idQueVe son opcionales (compatibilidad con las llamadas
+     * internas tras una transicion, donde el actor ya esta autorizado por la
+     * accion misma); cuando se pasan, se aplica la MISMA visibilidad que
+     * porRol(): un cliente solo puede ver sus propios pedidos, un domiciliario
+     * solo los suyos (o uno sin asignar y ya 'listo'). admin/kitchen ven
+     * cualquiera, igual que en el listado. Si no pasa el filtro, devuelve null
+     * (el controlador responde 404, no 403, para no confirmar que el id existe).
+     */
+    public function buscar($id, $rolQueVe = null, $idQueVe = null) {
         $numero = $this->numeroDesdeId($id);
         $sql = "SELECT p.*, c.nombre AS cliente_nombre, c.telefono AS cliente_telefono,
                        d.nombre AS domiciliario_nombre, d.telefono AS domiciliario_telefono,
@@ -96,7 +105,22 @@ class Pedido {
         $stmt = $this->consulta($sql, [$id, $numero]);
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        return $fila ? $this->formar($fila, null, null) : null;
+        if (!$fila) {
+            return null;
+        }
+
+        if ($rolQueVe === 'client' && $fila['id_cliente'] !== $idQueVe) {
+            return null;
+        }
+        if ($rolQueVe === 'delivery') {
+            $esSuyo = $fila['id_domiciliario'] === $idQueVe;
+            $esDisponible = $fila['estado'] === 'listo' && $fila['id_domiciliario'] === null;
+            if (!$esSuyo && !$esDisponible) {
+                return null;
+            }
+        }
+
+        return $this->formar($fila, $rolQueVe, $idQueVe);
     }
 
     /** Version cruda (sin formar el JSON) por id interno o numero visible. */
@@ -368,7 +392,7 @@ class Pedido {
             throw $e;
         }
 
-        return $this->buscar($idPedido);
+        return $this->buscar($idPedido, 'client', $idCliente);
     }
 
     /**

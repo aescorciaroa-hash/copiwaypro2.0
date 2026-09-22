@@ -94,7 +94,8 @@ export interface Order {
   driverPhone?: string;
   driverPlate?: string;
   driverVehicle?: string;
-  deliveryPin?: string;
+  deliveryPin?: string | null;
+  requiresDeliveryPin?: boolean;
   total: number;
   items: OrderItem[];
   address: string;

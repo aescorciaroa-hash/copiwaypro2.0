@@ -308,7 +308,7 @@ export default function DeliveryDashboard() {
 
   const markDelivered = (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
-    if (order?.deliveryPin) {
+    if (order?.requiresDeliveryPin) {
       setPinTargetOrder(orderId);
       setPinInput('');
       setPinError('');
@@ -818,12 +818,10 @@ export default function DeliveryDashboard() {
 
             <button
               onClick={async () => {
-                const order = orders.find(o => o.id === pinTargetOrder);
-                if (pinInput === order?.deliveryPin) {
-                  const ok = await executeDelivery(pinTargetOrder, pinInput);
-                  if (ok) setShowPinModal(false);
+                const ok = await executeDelivery(pinTargetOrder, pinInput);
+                if (ok) {
+                  setShowPinModal(false);
                 } else {
-                  setPinError('PIN incorrecto. Intenta nuevamente.');
                   setPinInput('');
                 }
               }}

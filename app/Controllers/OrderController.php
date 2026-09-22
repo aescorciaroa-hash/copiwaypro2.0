@@ -29,7 +29,8 @@ class OrderController {
 
     public function show($id) {
         global $conn;
-        $pedido = (new Pedido($conn))->buscar($id);
+        $auth = new Autenticacion($conn);
+        $pedido = (new Pedido($conn))->buscar($id, $auth->rolActual(), $auth->idActual());
         if (!$pedido) {
             responderError('Pedido no encontrado.', 404);
         }
@@ -128,11 +129,12 @@ class OrderController {
 
         $pedidoModelo->calificar($crudo['id_pedido'], $puntaje, $textoResena);
 
-        responderJson($pedidoModelo->buscar($id));
+        responderJson($pedidoModelo->buscar($id, 'client', $auth->idActual()));
     }
 
     private function aplicarTransicion($idVisible, callable $fn) {
         global $conn;
+        $auth = new Autenticacion($conn);
         $pedidoModelo = new Pedido($conn);
         $crudo = $pedidoModelo->buscarCrudo($idVisible);
         if (!$crudo) {
@@ -145,6 +147,9 @@ class OrderController {
             responderError($e->getMessage(), 409);
         }
 
-        responderJson($pedidoModelo->buscar($idVisible));
+        // El rol ya esta autorizado por la accion misma (ruta + validacion de
+        // negocio dentro de $fn); pasamos el contexto solo para que la
+        // respuesta tenga el shape correcto (telefono/PIN segun quien pregunta).
+        responderJson($pedidoModelo->buscar($idVisible, $auth->rolActual(), $auth->idActual()));
     }
 }

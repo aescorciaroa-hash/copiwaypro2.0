@@ -21,6 +21,12 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
         $mostrarTelefono = $fila['estado'] === 'en_camino' && $fila['id_domiciliario'] === $idQueVe;
     }
 
+    // Regla: el PIN de entrega es un secreto entre el cliente y el domiciliario
+    // en la puerta -- el domiciliario debe PEDIRSELO al cliente, no leerlo de
+    // la API (por eso confirmarEntrega() lo valida en servidor con
+    // hash_equals). admin/cocina/otros clientes tampoco lo necesitan nunca.
+    // requiresDeliveryPin es un booleano seguro de exponer a todos (el
+    // frontend del domiciliario lo usa solo para decidir si pedir el PIN).
     return [
         'id' => '#ORD-' . $fila['numero_pedido'],
         'status' => $estado,
@@ -30,7 +36,8 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
         'driverPhone' => $fila['domiciliario_nombre'] ? $fila['domiciliario_telefono'] : null,
         'driverPlate' => $fila['domiciliario_placa'],
         'driverVehicle' => $fila['domiciliario_vehiculo'],
-        'deliveryPin' => $fila['pin_entrega'],
+        'deliveryPin' => $rolQueVe === 'client' ? $fila['pin_entrega'] : null,
+        'requiresDeliveryPin' => !empty($fila['pin_entrega']),
         'total' => (float) $fila['total'],
         'subtotal' => (float) $fila['subtotal'],
         'shipping' => (float) $fila['costo_domicilio'],
