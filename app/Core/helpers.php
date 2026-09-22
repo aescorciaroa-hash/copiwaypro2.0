@@ -79,7 +79,20 @@ function configurarSeguridadHttp() {
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: strict-origin-when-cross-origin');
-    header("Content-Security-Policy: default-src 'self'");
+    // default-src 'self' a secas bloqueaba: el <script> inline que
+    // app/Views/layouts/cabecera.php usa para inyectar window.__APP_BASE__/
+    // __DATOS__ (rompe TODA la navegacion: rutaBase() queda vacio y cada link
+    // pierde el prefijo de subcarpeta), los estilos inline que React/lucide-
+    // react aplican via el atributo style, la hoja de Google Fonts y las
+    // imagenes de producto servidas desde Unsplash. curl nunca lo detecto
+    // porque no ejecuta JS ni aplica CSP -- solo aparece en un navegador real.
+    header(
+        "Content-Security-Policy: default-src 'self'; " .
+        "script-src 'self' 'unsafe-inline'; " .
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " .
+        "font-src 'self' https://fonts.gstatic.com; " .
+        "img-src 'self' data: https://images.unsplash.com"
+    );
 
     $origen = $_SERVER['HTTP_ORIGIN'] ?? '';
     $host = explode(':', $_SERVER['HTTP_HOST'] ?? '')[0];
