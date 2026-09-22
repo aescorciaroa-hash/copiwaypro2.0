@@ -12,7 +12,7 @@ class SyncController {
         $idUsuario = $auth->haySesion() ? $auth->idActual() : null;
 
         $payload = [
-            'products' => (new Producto($conn))->listar($rol !== 'admin'),
+            'products' => (new Producto($conn))->listar($rol !== 'admin', $rol === 'admin'),
             'settings' => (new Configuracion($conn))->obtener(),
         ];
 

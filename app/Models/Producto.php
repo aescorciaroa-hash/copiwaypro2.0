@@ -30,8 +30,12 @@ class Producto {
         return $stmt;
     }
 
-    /** $soloActivos=true para catalogos publicos; false para gestion de admin. */
-    public function listar($soloActivos = false) {
+    /**
+     * $soloActivos=true para catalogos publicos; false para gestion de admin.
+     * $esAdmin controla el shape del JSON (costPrice/receta/empaques solo para
+     * el panel de gestion, nunca en el catalogo publico o de cliente).
+     */
+    public function listar($soloActivos = false, $esAdmin = false) {
         $sql = "SELECT p.*, c.nombre AS categoria_nombre
                 FROM PRODUCTO p
                 JOIN CATEGORIA c ON c.id_categoria = p.id_categoria
@@ -44,10 +48,12 @@ class Producto {
         $stmt = $this->consulta($sql);
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
-        return array_map([$this, 'comoJson'], $filas);
+        return array_map(function ($fila) use ($esAdmin) {
+            return $this->comoJson($fila, $esAdmin);
+        }, $filas);
     }
 
-    public function buscar($id) {
+    public function buscar($id, $esAdmin = false) {
         $stmt = $this->consulta(
             'SELECT p.*, c.nombre AS categoria_nombre
              FROM PRODUCTO p
@@ -57,12 +63,12 @@ class Producto {
         );
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        return $fila ? $this->comoJson($fila) : null;
+        return $fila ? $this->comoJson($fila, $esAdmin) : null;
     }
 
-    public function comoJson($fila) {
+    public function comoJson($fila, $esAdmin = false) {
         $receta = $this->recetaDe($fila['id_producto']);
-        return producto_a_json($fila, $receta['ingredientes'], $receta['empaques']);
+        return producto_a_json($fila, $receta['ingredientes'], $receta['empaques'], $esAdmin);
     }
 
     private function recetaDe($idProducto) {

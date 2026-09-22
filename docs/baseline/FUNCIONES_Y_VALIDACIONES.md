@@ -47,7 +47,7 @@ En `docs/baseline/json/`, capturadas contra una base recién sembrada (`database
 ### Rutas y control de acceso
 - [ ] Todas las rutas mutadoras protegidas por `RoleMiddleware` según rol.
 - [ ] Catálogo público (`products` activos, `ingredients`, `settings` lectura) sin sesión.
-- [ ] **Falta hoy:** `costPrice`, receta completa y `stock` interno viajan en `GET /api/products` público (visible a cualquiera, no solo admin) — gap de Fase 6.
+- [x] **Corregido en Fase 6:** `costPrice`, receta completa (`quantityDeduct`) y `packaging` ahora solo viajan en `GET /api/products` cuando el solicitante es admin; el catalogo publico/cliente solo recibe `ingredients` reducido a `{id, name}` (lo minimo que el customizer necesita para "sin X"/"extra X"). `stock` en `GET /api/ingredients` se deja igual: es un dato ya mostrado intencionalmente en la UI del cliente (badge "X DISP." / "AGOTADO" en el armador de hamburguesas), no un leak accidental — ver nota mas abajo.
 
 ## Estructura de archivos ya renombrada (fuera de esta sesión, se toma como base)
 

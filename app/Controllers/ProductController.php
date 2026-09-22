@@ -21,12 +21,14 @@ class ProductController {
         global $conn;
         $auth = new Autenticacion($conn);
         $esAdmin = $auth->haySesion() && $auth->rolActual() === 'admin';
-        responderJson((new Producto($conn))->listar(!$esAdmin));
+        responderJson((new Producto($conn))->listar(!$esAdmin, $esAdmin));
     }
 
     public function show($id) {
         global $conn;
-        $producto = (new Producto($conn))->buscar($id);
+        $auth = new Autenticacion($conn);
+        $esAdmin = $auth->haySesion() && $auth->rolActual() === 'admin';
+        $producto = (new Producto($conn))->buscar($id, $esAdmin);
         if (!$producto) {
             responderError('Producto no encontrado.', 404);
         }
@@ -52,7 +54,7 @@ class ProductController {
             responderError($e->getMessage(), 422);
         }
 
-        responderJson($productoModelo->buscar($id), 201);
+        responderJson($productoModelo->buscar($id, true), 201);
     }
 
     public function update($id) {
@@ -74,7 +76,7 @@ class ProductController {
             responderError($e->getMessage(), 422);
         }
 
-        responderJson($productoModelo->buscar($id));
+        responderJson($productoModelo->buscar($id, true));
     }
 
     public function destroy($id) {
