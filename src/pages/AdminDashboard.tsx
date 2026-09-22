@@ -565,7 +565,9 @@ export default function AdminDashboard() {
 
   const handleGenerarCierre = async () => {
     try {
-      const report = await api.post<CashClosingReport>('/cash-closing');
+      // Solo lectura: NO archiva nada todavia. El admin revisa estos numeros
+      // y recien al confirmar (confirmarCierre) se persiste de verdad.
+      const report = await api.get<CashClosingReport>('/cash-closing/preview');
       const newCierre = {
         date: new Date(report.date).toLocaleDateString('es-CO'),
         totalVentas: report.totalVentas,
@@ -618,13 +620,18 @@ export default function AdminDashboard() {
   };
 
   const confirmarCierre = async () => {
-    // El archivado real ya ocurrió en el servidor al generar el cierre
-    // (handleGenerarCierre); aquí solo refrescamos la lista desde la API.
+    // Este es el paso que realmente persiste: archiva los pedidos del turno,
+    // liquida domiciliarios y descuenta insumos. Antes de este commit, ese
+    // archivado ya habia ocurrido en handleGenerarCierre (la "vista previa"
+    // no era una vista previa real); ahora handleGenerarCierre solo hace un
+    // GET de solo lectura, y esta es la unica llamada que muta estado.
     try {
+      await api.post('/cash-closing');
       const fresh = await api.get<typeof orders>('/orders');
       setOrders(fresh);
-    } catch {
-      // Si falla el refresco, el próximo poll de sincronización lo corrige.
+    } catch (err) {
+      showToast('danger', err instanceof ApiError ? err.message : 'No se pudo confirmar el cierre de caja.', 'Error');
+      return;
     }
     setShowCierre(false);
     showToast('cierre', 'El reporte de cierre de caja fue generado correctamente.', 'Cierre Generado');

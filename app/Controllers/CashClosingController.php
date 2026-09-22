@@ -2,6 +2,22 @@
 
 class CashClosingController {
 
+    /**
+     * Vista previa de solo lectura: mismo calculo que store(), sin archivar
+     * nada. El admin la ve antes de decidir si confirma con store().
+     */
+    public function preview() {
+        global $conn;
+        $auth = new Autenticacion($conn);
+
+        try {
+            $reporte = (new Caja($conn))->previsualizar($auth->idActual());
+            responderJson($reporte);
+        } catch (Exception $e) {
+            responderError($e->getMessage(), 409);
+        }
+    }
+
     /** Genera y archiva el cierre de caja del dia para el admin autenticado. */
     public function store() {
         global $conn;

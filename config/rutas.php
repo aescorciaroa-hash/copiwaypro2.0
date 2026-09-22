@@ -67,6 +67,8 @@ return [
     'PATCH /api/orders/{id}/review' => ['OrderController', 'review', ['client']],
 
     // ---- Cierre de caja / Dashboard ----
+    // El orden importa: /preview debe ir antes de /{id} para que no la capture el patron generico.
+    'GET /api/cash-closing/preview' => ['CashClosingController', 'preview', ['admin']],
     'POST /api/cash-closing' => ['CashClosingController', 'store', ['admin']],
     'GET /api/cash-closing' => ['CashClosingController', 'index', ['admin']],
     'GET /api/cash-closing/{id}' => ['CashClosingController', 'show', ['admin']],

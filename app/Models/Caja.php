@@ -32,6 +32,122 @@ class Caja {
     }
 
     /**
+     * Vista previa del cierre: exactamente el mismo calculo que generar(),
+     * pero de SOLO LECTURA -- no inserta REPORTE_CAJA/LIQUIDACION_DOMICILIARIO/
+     * DETALLE_AUDITORIA, no archiva pedidos (no toca id_reporte). El admin ve
+     * el resultado antes de decidir si confirma (POST /api/cash-closing, que
+     * sigue siendo el unico paso que persiste algo).
+     */
+    public function previsualizar($idAdmin) {
+        $hoy = date('Y-m-d');
+
+        $stmtExiste = $this->consulta('SELECT id_reporte FROM REPORTE_CAJA WHERE id_admin = ? AND fecha = ?', [$idAdmin, $hoy]);
+        $existe = $stmtExiste->get_result()->fetch_assoc();
+        $stmtExiste->close();
+        if ($existe) {
+            throw new Exception('Ya se generó un cierre de caja hoy para este administrador.');
+        }
+
+        $pedidos = $this->pedidosDelTurno();
+        $totales = $this->calcularTotales($pedidos);
+
+        $stmtDomiciliarios = $this->consulta("SELECT id_domiciliario, nombre, base_efectivo_asignada FROM DOMICILIARIO WHERE activo = 1");
+        $domiciliarios = $stmtDomiciliarios->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmtDomiciliarios->close();
+
+        $driverLiquidations = [];
+        foreach ($domiciliarios as $domiciliario) {
+            $recolectado = $totales['efectivoPorDomiciliario'][$domiciliario['id_domiciliario']] ?? 0;
+            if ($recolectado <= 0) {
+                continue;
+            }
+            $ordersCount = 0;
+            foreach ($pedidos as $pedido) {
+                if ($pedido['id_domiciliario'] === $domiciliario['id_domiciliario'] && $pedido['metodo_pago'] === 'efectivo') {
+                    $ordersCount++;
+                }
+            }
+            $driverLiquidations[] = [
+                'driverName' => $domiciliario['nombre'],
+                'ordersCount' => $ordersCount,
+                'baseCash' => (float) $domiciliario['base_efectivo_asignada'],
+                'cashCollected' => $recolectado,
+                'totalDue' => (float) $domiciliario['base_efectivo_asignada'] + $recolectado,
+            ];
+        }
+
+        $idsPedidos = array_column($pedidos, 'id_pedido');
+        $insumos = $this->consumoTeorico($idsPedidos);
+        $insumosConsumidos = [];
+        foreach ($insumos as $idIngrediente => $datos) {
+            $stmtStock = $this->consulta('SELECT cantidad_stock FROM INGREDIENTE WHERE id_ingrediente = ?', [$idIngrediente]);
+            $stockReal = (float) $stmtStock->get_result()->fetch_assoc()['cantidad_stock'];
+            $stmtStock->close();
+            $insumosConsumidos[] = ['name' => $datos['nombre'], 'used' => $datos['consumido'], 'stockReal' => $stockReal];
+        }
+
+        $stmtActivos = $this->consulta("SELECT COUNT(*) AS total FROM PEDIDO WHERE estado NOT IN ('entregado', 'cancelado')");
+        $activeOrdersCount = (int) $stmtActivos->get_result()->fetch_assoc()['total'];
+        $stmtActivos->close();
+
+        return [
+            'date' => $hoy,
+            'totalVentas' => $totales['totalVentas'],
+            'totalOrdenes' => count($pedidos),
+            'desglose' => ['efectivo' => $totales['totalEfectivo'], 'digital' => $totales['totalDigital']],
+            'driverLiquidations' => $driverLiquidations,
+            'insumosConsumidos' => $insumosConsumidos,
+            'orders' => array_map(function ($o) {
+                return [
+                    'id' => '#ORD-' . $o['numero_pedido'],
+                    'client' => $o['cliente_nombre'] ?? null,
+                    'total' => (float) $o['total'],
+                    'paymentMethod' => $o['metodo_pago'] === 'efectivo' ? 'cash' : 'online',
+                ];
+            }, $pedidos),
+            'activeOrdersCount' => $activeOrdersCount,
+        ];
+    }
+
+    private function pedidosDelTurno() {
+        $stmt = $this->consulta(
+            "SELECT p.*, c.nombre AS cliente_nombre FROM PEDIDO p
+             JOIN CLIENTE c ON c.id_cliente = p.id_cliente
+             WHERE p.estado = 'entregado' AND p.id_reporte IS NULL"
+        );
+        $pedidos = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $stmt->close();
+        return $pedidos;
+    }
+
+    private function calcularTotales($pedidos) {
+        $totalVentas = 0.0;
+        $totalEfectivo = 0.0;
+        $totalDigital = 0.0;
+        $efectivoPorDomiciliario = [];
+
+        foreach ($pedidos as $pedido) {
+            $totalVentas += (float) $pedido['total'];
+            if ($pedido['metodo_pago'] === 'efectivo') {
+                $totalEfectivo += (float) $pedido['total'];
+                if ($pedido['id_domiciliario']) {
+                    $efectivoPorDomiciliario[$pedido['id_domiciliario']] =
+                        ($efectivoPorDomiciliario[$pedido['id_domiciliario']] ?? 0) + (float) $pedido['total'];
+                }
+            } else {
+                $totalDigital += (float) $pedido['total'];
+            }
+        }
+
+        return [
+            'totalVentas' => $totalVentas,
+            'totalEfectivo' => $totalEfectivo,
+            'totalDigital' => $totalDigital,
+            'efectivoPorDomiciliario' => $efectivoPorDomiciliario,
+        ];
+    }
+
+    /**
      * Genera el cierre del dia para el admin autenticado. Solo considera
      * pedidos 'entregado' que todavia no pertenecen a ningun reporte
      * (id_reporte IS NULL) — asi un cierre nunca se repite ni se pisa.
@@ -48,27 +164,12 @@ class Caja {
                 throw new Exception('Ya se generó un cierre de caja hoy para este administrador.');
             }
 
-            $stmtPedidos = $this->consulta("SELECT * FROM PEDIDO WHERE estado IN ('entregado') AND id_reporte IS NULL");
-            $pedidos = $stmtPedidos->get_result()->fetch_all(MYSQLI_ASSOC);
-            $stmtPedidos->close();
-
-            $totalVentas = 0.0;
-            $totalEfectivo = 0.0;
-            $totalDigital = 0.0;
-            $efectivoPorDomiciliario = [];
-
-            foreach ($pedidos as $pedido) {
-                $totalVentas += (float) $pedido['total'];
-                if ($pedido['metodo_pago'] === 'efectivo') {
-                    $totalEfectivo += (float) $pedido['total'];
-                    if ($pedido['id_domiciliario']) {
-                        $efectivoPorDomiciliario[$pedido['id_domiciliario']] =
-                            ($efectivoPorDomiciliario[$pedido['id_domiciliario']] ?? 0) + (float) $pedido['total'];
-                    }
-                } else {
-                    $totalDigital += (float) $pedido['total'];
-                }
-            }
+            $pedidos = $this->pedidosDelTurno();
+            $totales = $this->calcularTotales($pedidos);
+            $totalVentas = $totales['totalVentas'];
+            $totalEfectivo = $totales['totalEfectivo'];
+            $totalDigital = $totales['totalDigital'];
+            $efectivoPorDomiciliario = $totales['efectivoPorDomiciliario'];
 
             $idReporte = generarUuid();
             $stmtIns = $this->consulta(
