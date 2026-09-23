@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-import { formatCOP } from '../lib/format';
+import { formatCOP, vehicleWithModel } from '../lib/format';
 
 import { useStore, DEFAULT_MENU_CATEGORIES, Product, ProductComponent, Order, OrderItem, Staff, Client, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
@@ -206,16 +206,18 @@ export default function AdminDashboard() {
   const [selectedDriverInfo, setSelectedDriverInfo] = useState<DriverMockInfo | null>(null);
   const [selectedStaffInfo, setSelectedStaffInfo] = useState<Staff | null>(null);
   const [selectedClientInfo, setSelectedClientInfo] = useState<Client | null>(null);
-  const [staffEditData, setStaffEditData] = useState({ 
-    name: "", 
-    phone: "", 
-    email: "", 
-    password: "", 
-    role: "Ayudante de cocina", 
-    plate: "", 
-    vehicle: "", 
+  const [staffEditData, setStaffEditData] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    password: "",
+    pin: "",
+    role: "Ayudante de cocina",
+    plate: "",
+    vehicle: "moto",
+    vehicleModel: "",
     active: true,
-    baseCash: 0 as number | '' 
+    baseCash: 0 as number | ''
   });
   const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [copiedStaffCreds, setCopiedStaffCreds] = useState(false);
@@ -227,9 +229,11 @@ export default function AdminDashboard() {
       phone: emp.phone || "",
       email: emp.email || "",
       password: emp.password || "",
+      pin: "",
       role: emp.role || "Ayudante de cocina",
       plate: emp.plate || "",
-      vehicle: emp.vehicle || "",
+      vehicle: emp.vehicle || "moto",
+      vehicleModel: emp.vehicleModel || "",
       active: emp.active !== false,
       baseCash: emp.baseCash || 0
     });
@@ -247,7 +251,7 @@ export default function AdminDashboard() {
   // Estados Globales (Datos simulados)
   const { 
     products, addProduct, updateProduct, deleteProduct,
-    inventory, addInventoryItem, updateInventoryStock, deleteInventoryItem,
+    inventory, addInventoryItem, updateInventoryItem, updateInventoryStock, deleteInventoryItem,
     inventoryLogs,
     staff, addStaff, updateStaff, deleteStaff,
     orders, addOrder, updateOrderStatus, setOrders,
@@ -259,96 +263,86 @@ export default function AdminDashboard() {
   
   const [salesFilter, setSalesFilter] = useState('Esta semana');
 
+  // Lunes de la semana que contiene `d` (semana inicia en lunes).
+  const inicioDeSemana = (d: Date) => {
+    const date = new Date(d);
+    const dia = date.getDay(); // 0=Dom .. 6=Sab
+    const diff = dia === 0 ? -6 : 1 - dia;
+    date.setDate(date.getDate() + diff);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  /** Suma ventas reales (orders) día por día, empezando en `inicio` (inclusive). */
+  const ventasPorDia = (inicio: Date) => {
+    return DIAS_SEMANA.map((label, i) => {
+      const diaInicio = new Date(inicio);
+      diaInicio.setDate(diaInicio.getDate() + i);
+      const diaFin = new Date(diaInicio);
+      diaFin.setDate(diaFin.getDate() + 1);
+      const pedidosDelDia = orders.filter(o => {
+        const fecha = new Date(o.date);
+        return fecha >= diaInicio && fecha < diaFin;
+      });
+      const amount = pedidosDelDia.reduce((sum, o) => sum + (o.total || 0), 0);
+      return { date: label, amount, orderCount: pedidosDelDia.length };
+    });
+  };
+
+  /** Suma ventas reales agrupadas por semana dentro del mes que empieza en `inicioMes`. */
+  const ventasPorSemanaDelMes = (inicioMes: Date) => {
+    const finMes = new Date(inicioMes.getFullYear(), inicioMes.getMonth() + 1, 0, 23, 59, 59, 999);
+    const semanas: { date: string; amount: number; orderCount: number }[] = [];
+    let cursor = new Date(inicioMes);
+    let numero = 1;
+    while (cursor <= finMes) {
+      const semanaInicio = new Date(cursor);
+      const semanaFin = new Date(cursor);
+      semanaFin.setDate(semanaFin.getDate() + 7);
+      if (semanaFin > finMes) semanaFin.setTime(finMes.getTime() + 1);
+      const pedidosDeLaSemana = orders.filter(o => {
+        const fecha = new Date(o.date);
+        return fecha >= semanaInicio && fecha < semanaFin;
+      });
+      semanas.push({
+        date: `Semana ${numero}`,
+        amount: pedidosDeLaSemana.reduce((sum, o) => sum + (o.total || 0), 0),
+        orderCount: pedidosDeLaSemana.length,
+      });
+      cursor.setDate(cursor.getDate() + 7);
+      numero++;
+    }
+    return semanas;
+  };
+
   const getSalesData = () => {
+    const ahora = new Date();
+    const inicioSemanaActual = inicioDeSemana(ahora);
+
     switch (salesFilter) {
       case 'Esta semana':
-        return [
-          { date: 'Lun', amount: 150000 },
-          { date: 'Mar', amount: 200000 },
-          { date: 'Mié', amount: 350000 },
-          { date: 'Jue', amount: 180000 },
-          { date: 'Vie', amount: 450000 },
-          { date: 'Sáb', amount: 650000 },
-          { date: 'Dom', amount: 500000 }
-        ];
-      case 'Semana pasada':
-        return [
-          { date: 'Lun', amount: 120000 },
-          { date: 'Mar', amount: 180000 },
-          { date: 'Mié', amount: 280000 },
-          { date: 'Jue', amount: 150000 },
-          { date: 'Vie', amount: 390000 },
-          { date: 'Sáb', amount: 550000 },
-          { date: 'Dom', amount: 480000 }
-        ];
+        return ventasPorDia(inicioSemanaActual);
+      case 'Semana pasada': {
+        const inicio = new Date(inicioSemanaActual);
+        inicio.setDate(inicio.getDate() - 7);
+        return ventasPorDia(inicio);
+      }
       case 'Este mes':
-        return [
-          { date: 'Semana 1', amount: 1850000 },
-          { date: 'Semana 2', amount: 2100000 },
-          { date: 'Semana 3', amount: 2450000 },
-          { date: 'Semana 4', amount: 2200000 }
-        ];
+        return ventasPorSemanaDelMes(new Date(ahora.getFullYear(), ahora.getMonth(), 1));
       case 'Hace un mes':
-        return [
-          { date: 'Semana 1', amount: 1650000 },
-          { date: 'Semana 2', amount: 1800000 },
-          { date: 'Semana 3', amount: 2050000 },
-          { date: 'Semana 4', amount: 1950000 }
-        ];
+        return ventasPorSemanaDelMes(new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1));
       default:
         return [];
     }
   };
 
   const salesData = getSalesData();
+  const periodOrdersCount = salesData.reduce((sum, d) => sum + (d.orderCount || 0), 0);
 
-  
+
   // Ajustes
-
-  const driversMockData: Record<number, DriverMockInfo> = {
-    1: {
-      name: 'Repartidor 1 - Carlos Mendoza',
-      status: 'EN RUTA',
-      phone: '+57 320 123 4567',
-      plate: 'XYZ-123',
-      vehicle: 'Motocicleta Honda',
-      orders: [
-        {
-          id: '#1024',
-          client: 'Ana Pérez',
-          address: 'Calle 10 # 5-20, Centro',
-          status: 'En camino',
-          items: ['2x Hamburguesa Clásica', '1x Papas Fritas'],
-          total: 45000,
-        },
-        {
-          id: '#1025',
-          client: 'Luis Sánchez',
-          address: 'Carrera 15 # 8-45, Altico',
-          status: 'Entregado',
-          items: ['1x Pizza Hawaiana'],
-          total: 35000,
-        }
-      ]
-    },
-    2: {
-      name: 'Repartidor 2 - Miguel Torres',
-      status: 'CARGANDO',
-      phone: '+57 310 987 6543',
-      plate: 'ABC-987',
-      vehicle: 'Motocicleta Yamaha',
-      orders: [
-        {
-          id: '#1026',
-          client: 'María Gómez',
-          address: 'Calle 20 # 10-15, Norte',
-          status: 'Asignado',
-          items: ['3x Hot Dog Especial', '2x Gaseosa 400ml'],
-          total: 62000,
-        }
-      ]
-    }
-  };
 
   // Real-time automatic store status calculation
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -419,12 +413,13 @@ export default function AdminDashboard() {
     name: '',
     stock: '',
     totalCost: '',
+    unitCost: '',
     unit: 'Unidades',
     category: 'General',
     supplier: '',
     notes: ''
   });
-  const [newStaff, setNewStaff] = useState({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: '', baseCash: 0 as number | '' });
+  const [newStaff, setNewStaff] = useState({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: 'moto', vehicleModel: '', pin: '', baseCash: 0 as number | '' });
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualOrderClient, setManualOrderClient] = useState({ name: '', address: '', phone: '' });
   const [manualOrderItems, setManualOrderItems] = useState<ManualOrderItem[]>([]);
@@ -555,11 +550,7 @@ export default function AdminDashboard() {
         color: palette[i % palette.length]
       }));
     }
-    return [
-      { name: 'Hamburguesa Clásica', value: 45, units: 18, color: '#f97316' },
-      { name: 'Papas Medianas', value: 30, units: 12, color: '#3b82f6' },
-      { name: 'Gaseosa 500ml', value: 25, units: 10, color: '#9ca3af' }
-    ];
+    return [];
   }, [orders]);
 
 
@@ -982,6 +973,7 @@ export default function AdminDashboard() {
                 staff={staff}
                 storeConfig={storeConfig}
                 salesData={salesData}
+                periodOrdersCount={periodOrdersCount}
                 salesFilter={salesFilter}
                 setSalesFilter={setSalesFilter}
                 topProductsData={topProductsData}
@@ -996,7 +988,6 @@ export default function AdminDashboard() {
                 orders={orders}
                 staff={staff}
                 theme={theme}
-                driversMockData={driversMockData}
                 highlightedOrderId={highlightedOrderId}
                 isMapExpanded={isMapExpanded}
                 setIsMapExpanded={setIsMapExpanded}
@@ -1018,6 +1009,7 @@ export default function AdminDashboard() {
                 handleNavigateToOrders={handleNavigateToOrders}
                 setEditingAddressOrder={setEditingAddressOrder}
                 setNewAddress={setNewAddress}
+                handleOpenStaffModal={handleOpenStaffModal}
               />
             )}
             {activeTab === 'menu' && (
@@ -1063,6 +1055,7 @@ export default function AdminDashboard() {
                 filteredInventory={filteredInventory}
                 filteredInventoryLogs={filteredInventoryLogs}
                 addInventoryItem={addInventoryItem}
+                updateInventoryItem={updateInventoryItem}
                 updateInventoryStock={updateInventoryStock}
                 deleteInventoryItem={deleteInventoryItem}
                 newItem={newItem}
@@ -1633,201 +1626,230 @@ export default function AdminDashboard() {
       {/* Manual Order Modal */}
       <AnimatePresence>
         {showManualForm && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowManualForm(false)}
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-[#151515] w-full max-w-4xl rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-[#151515] w-full max-w-4xl rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="p-6 md:p-8 flex-1 overflow-y-auto">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-black text-gray-900 dark:text-white">
-                    Ingreso de Orden Manual
-                  </h2>
-                  <button 
-                    onClick={() => setShowManualForm(false)}
-                    className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-6">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Cliente</label>
-                  <input type="text" value={manualOrderClient.name} onChange={e => setManualOrderClient({...manualOrderClient, name: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Nombre del cliente" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Teléfono</label>
-                  <input type="tel" value={manualOrderClient.phone} onChange={e => setManualOrderClient({...manualOrderClient, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Número de celular" />
-                </div>
-                <div className="flex-1 min-w-0 md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Dirección de Entrega</label>
-                  <input type="text" value={manualOrderClient.address} onChange={e => setManualOrderClient({...manualOrderClient, address: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Dirección completa" />
-                </div>
-              </div>
-
-              {/* Added items list */}
-              {manualOrderItems.length > 0 && (
-                <div className="space-y-3 bg-gray-50 dark:bg-stone-900 p-4 rounded-[16px] border border-gray-100 dark:border-stone-800">
-                  <h4 className="font-bold text-sm text-gray-900 dark:text-white">Productos Añadidos:</h4>
-                  {manualOrderItems.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-white dark:bg-[#1a1a1e] p-3 rounded-[12px] shadow-sm border border-gray-100 dark:border-stone-800/50">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-brand-orange text-sm">{item.quantity}x</span>
-                        <div>
-                          <p className="font-bold text-sm text-gray-900 dark:text-white">{item.name}</p>
-                          {(item.removed.length > 0 || item.extras.length > 0) && (
-                            <div className="flex flex-wrap gap-2 mt-1">
-                              {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
-                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="font-black text-sm">{formatCOP(item.finalPrice)}</span>
-                        <button onClick={() => setManualOrderItems(manualOrderItems.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded-full transition-colors">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Product selection block */}
-              <div className="flex flex-col gap-4 border border-gray-100 dark:border-stone-800 rounded-[16px] p-5 relative">
-                <h4 className="font-bold text-sm text-gray-900 dark:text-white">Añadir Producto</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="md:col-span-2 relative" id="product-dropdown-container">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Seleccionar del Menú</label>
-                    <div 
-                      className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 cursor-pointer flex items-center justify-between"
-                      onClick={() => {
-                        const el = document.getElementById('product-dropdown');
-                        if (el) el.classList.toggle('hidden');
-                      }}
-                    >
-                      {manualSelectedProduct ? (
-                        <div className="flex items-center gap-3">
-                          <img src={manualSelectedProduct.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-6 h-6 rounded-md object-cover" />
-                          <span>{manualSelectedProduct.name} - {formatCOP(manualSelectedProduct.price)}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">-- Elige un producto --</span>
-                      )}
-                      <ChevronDown className="w-4 h-4 text-gray-500" />
-                    </div>
-                    
-                    <div id="product-dropdown" className="hidden absolute top-full left-0 w-full mt-2 bg-white dark:bg-[#1a1a1e] border border-gray-200 dark:border-stone-800 rounded-[16px] shadow-xl z-50 max-h-60 overflow-y-auto">
-                      {products.filter(p => p.active).map(p => (
-                        <div 
-                          key={p.id}
-                          className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-stone-800 cursor-pointer border-b border-gray-100 dark:border-stone-800/50 last:border-0"
-                          onClick={() => {
-                            setManualSelectedProduct(p);
-                            setManualCustomRemoved([]);
-                            setManualCustomExtras([]);
-                            const el = document.getElementById('product-dropdown');
-                            if (el) el.classList.add('hidden');
-                          }}
-                        >
-                          <img src={p.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-10 h-10 rounded-[12px] object-cover" />
-                          <div>
-                            <p className="font-bold text-sm text-gray-900 dark:text-white">{p.name}</p>
-                            <p className="text-xs text-brand-orange font-bold">{formatCOP(p.price)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+              {/* Modal Header */}
+              <div className="p-6 md:p-8 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-orange-50 dark:bg-orange-900/20 text-brand-orange flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-6 h-6" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cantidad</label>
-                    <input type="number" min="1" value={manualQuantity} onChange={e => setManualQuantity(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" />
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Ingreso de Orden Manual</h2>
+                    <p className="text-xs text-gray-500 dark:text-stone-400">Registra un pedido tomado por llamada o WhatsApp.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowManualForm(false)}
+                  className="w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-stone-800 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-stone-300 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-6 md:p-8 space-y-5 overflow-y-auto">
+                {/* Datos del Cliente */}
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">1. Datos del Cliente</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cliente</label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="text" value={manualOrderClient.name} onChange={e => setManualOrderClient({...manualOrderClient, name: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Nombre del cliente" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Teléfono</label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="tel" value={manualOrderClient.phone} onChange={e => setManualOrderClient({...manualOrderClient, phone: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Número de celular" />
+                      </div>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Dirección de Entrega</label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="text" value={manualOrderClient.address} onChange={e => setManualOrderClient({...manualOrderClient, address: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Dirección completa" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {manualSelectedProduct && (
-                  <div className="mt-2 space-y-4">
-                    {/* Ingredients selector */}
-                    {manualSelectedProduct.ingredients && manualSelectedProduct.ingredients.length > 0 && (
-                      <div className="space-y-3">
-                        <label className="block text-xs font-bold text-gray-700 dark:text-stone-300">Personalizar Ingredientes</label>
-                        <div className="flex flex-wrap gap-2">
-                          {manualSelectedProduct.ingredients.map((ing: ProductComponent) => {
-                            const isRemoved = manualCustomRemoved.some(r => r.id === ing.id);
-                            const isExtra = manualCustomExtras.some(e => e.id === ing.id);
-                            
-                            return (
-                              <div key={ing.id} className="flex items-center gap-1 bg-gray-100 dark:bg-stone-800 rounded-full p-1 border border-gray-200 dark:border-stone-700">
-                                <button 
-                                  onClick={() => {
-                                    if (isRemoved) setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id));
-                                    else { setManualCustomRemoved([...manualCustomRemoved, ing]); setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id)); }
-                                  }}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${isRemoved ? 'bg-red-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
-                                >
-                                  -
-                                </button>
-                                <span className={`text-xs font-medium px-2 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-stone-300'}`}>
-                                  {ing.name}
-                                </span>
-                                <button 
-                                  onClick={() => {
-                                    if (isExtra) setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id));
-                                    else { setManualCustomExtras([...manualCustomExtras, ing]); setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id)); }
-                                  }}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${isExtra ? 'bg-emerald-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
-                                >
-                                  +
-                                </button>
+                {/* Productos Añadidos */}
+                {manualOrderItems.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">2. Productos Añadidos</h3>
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand-orange/10 text-brand-orange">
+                        {manualOrderItems.length} {manualOrderItems.length === 1 ? 'ítem' : 'ítems'}
+                      </span>
+                    </div>
+                    {manualOrderItems.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center bg-white dark:bg-stone-800 p-3.5 rounded-xl shadow-xs border border-gray-100 dark:border-stone-700">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-8 h-8 rounded-full bg-brand-orange/10 text-brand-orange font-black text-xs flex items-center justify-center shrink-0">{item.quantity}x</span>
+                          <div className="min-w-0">
+                            <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{item.name}</p>
+                            {(item.removed.length > 0 || item.extras.length > 0) && (
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
+                                {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
                               </div>
-                            );
-                          })}
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-black text-sm text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
+                          <button onClick={() => setManualOrderItems(manualOrderItems.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded-full transition-colors cursor-pointer">
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                    )}
-                    <button onClick={handleAddProductToManualOrder} className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-2.5 rounded-[12px] text-sm font-bold hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors">
-                      Agregar a la Orden
-                    </button>
+                    ))}
                   </div>
                 )}
+
+                {/* Añadir Producto */}
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-4 relative">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">{manualOrderItems.length > 0 ? '3.' : '2.'} Añadir Producto</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="lg:col-span-2 relative" id="product-dropdown-container">
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Seleccionar del Menú</label>
+                      <div
+                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 cursor-pointer flex items-center justify-between transition-all"
+                        onClick={() => {
+                          const el = document.getElementById('product-dropdown');
+                          if (el) el.classList.toggle('hidden');
+                        }}
+                      >
+                        {manualSelectedProduct ? (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img src={manualSelectedProduct.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0" />
+                            <span className="truncate">{manualSelectedProduct.name} - {formatCOP(manualSelectedProduct.price)}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-- Elige un producto --</span>
+                        )}
+                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                      </div>
+
+                      <div id="product-dropdown" className="hidden absolute top-full left-0 w-full mt-2 bg-white dark:bg-[#1a1a1e] border border-gray-200 dark:border-stone-800 rounded-2xl shadow-xl z-50 max-h-60 overflow-y-auto">
+                        {products.filter(p => p.active).map(p => (
+                          <div
+                            key={p.id}
+                            className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-stone-800 cursor-pointer border-b border-gray-100 dark:border-stone-800/50 last:border-0"
+                            onClick={() => {
+                              setManualSelectedProduct(p);
+                              setManualCustomRemoved([]);
+                              setManualCustomExtras([]);
+                              const el = document.getElementById('product-dropdown');
+                              if (el) el.classList.add('hidden');
+                            }}
+                          >
+                            <img src={p.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-10 h-10 rounded-xl object-cover shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{p.name}</p>
+                              <p className="text-xs text-brand-orange font-bold">{formatCOP(p.price)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cantidad</label>
+                      <input type="number" min="1" value={manualQuantity} onChange={e => setManualQuantity(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all font-bold" />
+                    </div>
+                  </div>
+
+                  {manualSelectedProduct && (
+                    <div className="pt-2 space-y-4 border-t border-gray-200/70 dark:border-stone-800">
+                      {/* Ingredients selector */}
+                      {manualSelectedProduct.ingredients && manualSelectedProduct.ingredients.length > 0 && (
+                        <div className="space-y-3 pt-2">
+                          <label className="block text-xs font-bold text-gray-700 dark:text-stone-300">Personalizar Ingredientes</label>
+                          <div className="flex flex-wrap gap-2">
+                            {manualSelectedProduct.ingredients.map((ing: ProductComponent) => {
+                              const isRemoved = manualCustomRemoved.some(r => r.id === ing.id);
+                              const isExtra = manualCustomExtras.some(e => e.id === ing.id);
+
+                              return (
+                                <div key={ing.id} className="flex items-center gap-1 bg-white dark:bg-stone-800 rounded-full p-1 border border-gray-200 dark:border-stone-700">
+                                  <button
+                                    onClick={() => {
+                                      if (isRemoved) setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id));
+                                      else { setManualCustomRemoved([...manualCustomRemoved, ing]); setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id)); }
+                                    }}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${isRemoved ? 'bg-red-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
+                                  >
+                                    -
+                                  </button>
+                                  <span className={`text-xs font-medium px-2 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-stone-300'}`}>
+                                    {ing.name}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      if (isExtra) setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id));
+                                      else { setManualCustomExtras([...manualCustomExtras, ing]); setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id)); }
+                                    }}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${isExtra ? 'bg-emerald-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <button onClick={handleAddProductToManualOrder} className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-3 rounded-2xl text-sm font-bold hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors cursor-pointer flex items-center justify-center gap-2">
+                        <Plus className="w-4 h-4" /> Agregar a la Orden
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="flex flex-col md:flex-row justify-between items-center pt-4 border-t border-gray-100 dark:border-stone-800">
-                <div className="flex gap-6 items-center">
+              {/* Modal Footer */}
+              <div className="p-6 md:p-8 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-stone-900/50 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
+                <div className="flex gap-5 sm:gap-6 items-center flex-wrap">
                   <div className="text-sm">
-                    <span className="text-gray-500">Subtotal: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Subtotal: </span>
                     <span className="font-bold text-gray-900 dark:text-white">{formatCOP(manualOrderTotal)}</span>
                   </div>
                   <div className="text-sm">
-                    <span className="text-gray-500">Envío: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Envío: </span>
                     <span className="font-bold text-gray-900 dark:text-white">{formatCOP(storeConfig.shippingRate)}</span>
                   </div>
                   <div className="text-lg">
-                    <span className="text-gray-500">Total: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Total: </span>
                     <span className="font-black text-brand-orange">{formatCOP(manualOrderTotal + (manualOrderItems.length > 0 ? storeConfig.shippingRate : 0))}</span>
                   </div>
                 </div>
-                <button 
-                  onClick={handleCreateManualOrder} 
+                <button
+                  onClick={handleCreateManualOrder}
                   disabled={manualOrderItems.length === 0 || !manualOrderClient.name}
-                  className="bg-brand-orange text-white w-full md:w-auto px-8 py-3 rounded-[12px] font-bold hover:bg-[#e66500] disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-4 md:mt-0"
+                  className="bg-brand-orange text-white w-full md:w-auto px-8 py-3.5 rounded-full font-bold hover:bg-[#e66500] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-orange/20 cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Enviar a Cocina
+                  <ShoppingBag className="w-4 h-4" /> Enviar a Cocina
                 </button>
               </div>
-            </div>
-            </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
         )}
       </AnimatePresence>
 
@@ -1946,9 +1968,9 @@ export default function AdminDashboard() {
                      const live = orders.find(o => o.id === viewingOrder.id) || viewingOrder;
                      const dName = live.driverName || viewingOrder.driverName;
                      const driverFromStaff = staff.find(s => s.name === dName || s.currentOrderId === live.id);
-                     const phone = live.driverPhone || driverFromStaff?.phone || '3114567890';
-                     const plate = live.driverPlate || driverFromStaff?.plate || 'CW-789';
-                     const vehicle = live.driverVehicle || driverFromStaff?.vehicle || 'Moto Honda CB125';
+                     const phone = live.driverPhone || driverFromStaff?.phone || 'Sin teléfono registrado';
+                     const plate = live.driverPlate || driverFromStaff?.plate || 'Sin placa';
+                     const vehicle = live.driverVehicle || vehicleWithModel(driverFromStaff?.vehicle, driverFromStaff?.vehicleModel) || 'Sin vehículo registrado';
 
                      if (dName) {
                        return (
@@ -2140,7 +2162,8 @@ export default function AdminDashboard() {
                       )}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
-                      {staffEditData.role} • ID: #{selectedStaffInfo.id ? selectedStaffInfo.id.slice(-6) : '000000'}
+                      {staffEditData.role} • ID: #{selectedStaffInfo.id || '0'}
+                      {selectedStaffInfo.createdBy && ` • Creado por ${selectedStaffInfo.createdBy}`}
                     </p>
                   </div>
                 </div>
@@ -2268,6 +2291,22 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* PIN de Perfil */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1.5">
+                    PIN de Perfil (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={staffEditData.pin}
+                    onChange={e => setStaffEditData({...staffEditData, pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
+                    className="w-full pl-3.5 pr-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-stone-700 bg-gray-50/50 dark:bg-stone-900/50 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-colors tracking-widest"
+                    placeholder={selectedStaffInfo?.hasPin ? 'Ya tiene un PIN — deja vacío para no cambiarlo' : 'Ej. 1234'}
+                  />
+                </div>
+
                 {/* Si es domiciliario: datos de transporte */}
                 {staffEditData.role === 'Domiciliario' && (
                   <div className="space-y-3.5 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
@@ -2288,14 +2327,29 @@ export default function AdminDashboard() {
                         <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
                           Vehículo
                         </label>
-                        <input 
-                          type="text" 
-                          value={staffEditData.vehicle || ''} 
-                          onChange={e => setStaffEditData({...staffEditData, vehicle: e.target.value})} 
-                          className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange" 
-                          placeholder="Ej. Moto Honda"
+                        <CustomSelect
+                          value={staffEditData.vehicle || 'moto'}
+                          onChange={(val) => setStaffEditData({ ...staffEditData, vehicle: val })}
+                          options={[
+                            { value: 'moto', label: 'Moto' },
+                            { value: 'bicicleta', label: 'Bicicleta' },
+                            { value: 'carro', label: 'Carro' },
+                            { value: 'a_pie', label: 'A pie' },
+                          ]}
                         />
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
+                        Marca y Modelo del Vehículo
+                      </label>
+                      <input
+                        type="text"
+                        value={staffEditData.vehicleModel || ''}
+                        onChange={e => setStaffEditData({...staffEditData, vehicleModel: e.target.value})}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange"
+                        placeholder="Ej. GIXXER 155 FI"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
@@ -2383,22 +2437,31 @@ export default function AdminDashboard() {
                   Cancelar
                 </button>
 
-                <button 
+                <button
                   type="button"
-                  onClick={() => {
-                    updateStaff(selectedStaffInfo.id, { 
-                      name: staffEditData.name,
-                      email: staffEditData.email, 
-                      phone: staffEditData.phone, 
-                      password: staffEditData.password,
-                      role: staffEditData.role,
-                      plate: staffEditData.plate,
-                      vehicle: staffEditData.vehicle,
-                      active: staffEditData.active,
-                      baseCash: staffEditData.baseCash === '' ? 0 : staffEditData.baseCash
-                    });
-                    showToast('staff', 'Los datos del empleado han sido actualizados correctamente.', 'Colaborador Actualizado');
-                    setSelectedStaffInfo(null);
+                  onClick={async () => {
+                    try {
+                      await updateStaff(selectedStaffInfo.id, {
+                        name: staffEditData.name,
+                        email: staffEditData.email,
+                        phone: staffEditData.phone,
+                        password: staffEditData.password,
+                        pin: staffEditData.pin,
+                        role: staffEditData.role,
+                        plate: staffEditData.plate,
+                        vehicle: staffEditData.vehicle,
+                        vehicleModel: staffEditData.vehicleModel,
+                        active: staffEditData.active,
+                        baseCash: staffEditData.baseCash === '' ? 0 : staffEditData.baseCash
+                      });
+                      showToast('staff', 'Los datos del empleado han sido actualizados correctamente.', 'Colaborador Actualizado');
+                      setSelectedStaffInfo(null);
+                    } catch (err) {
+                      const mensaje = err instanceof ApiError
+                        ? (err.errors ? Object.values(err.errors)[0][0] : err.message)
+                        : 'No se pudo actualizar el colaborador.';
+                      showToast('danger', mensaje, 'No se Actualizó el Colaborador');
+                    }
                   }}
                   className="px-5 py-2 rounded-xl text-sm font-bold bg-brand-orange text-white hover:bg-brand-orange/90 transition-colors shadow-sm cursor-pointer"
                 >

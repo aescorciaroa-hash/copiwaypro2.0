@@ -28,7 +28,7 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
     // requiresDeliveryPin es un booleano seguro de exponer a todos (el
     // frontend del domiciliario lo usa solo para decidir si pedir el PIN).
     return [
-        'id' => '#ORD-' . $fila['numero_pedido'],
+        'id' => '#ORD-' . $fila['id_pedido'],
         'status' => $estado,
         'client' => $fila['cliente_nombre'],
         'clientPhone' => $mostrarTelefono ? $fila['cliente_telefono'] : null,

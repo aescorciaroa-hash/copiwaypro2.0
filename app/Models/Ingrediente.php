@@ -41,14 +41,14 @@ class Ingrediente {
     }
 
     public function listarInventario() {
-        $stmt = $this->consulta($this->base() . ' ORDER BY i.nombre ASC');
+        $stmt = $this->consulta($this->base() . ' WHERE i.activo = 1 ORDER BY i.nombre ASC');
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
         return array_map('ingrediente_a_inventario', $filas);
     }
 
     public function listarIngredientes() {
-        $stmt = $this->consulta($this->base() . ' ORDER BY i.nombre ASC');
+        $stmt = $this->consulta($this->base() . ' WHERE i.activo = 1 ORDER BY i.nombre ASC');
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
         return array_map('ingrediente_a_catalogo', $filas);
@@ -79,27 +79,23 @@ class Ingrediente {
 
             $stmt = $this->consulta(
                 'INSERT INTO INGREDIENTE
-                    (id_ingrediente, id_categoria, nombre, unidad_medida, cantidad_stock,
+                    (id_categoria, nombre, unidad_medida, cantidad_stock,
                      costo_unitario, costo_total, precio_extra, proveedor, notas)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
-                    '', $idCategoria, $datos['name'], $datos['unit'] ?? 'unidad', $datos['stock'] ?? 0,
+                    $idCategoria, $datos['name'], $datos['unit'] ?? 'unidad', $datos['stock'] ?? 0,
                     $datos['unitCost'] ?? 0, $datos['totalCost'] ?? null, $datos['price'] ?? 0,
                     $datos['supplier'] ?? null, $datos['notes'] ?? null,
                 ]
             );
             $stmt->close();
-
-            $stmtId = $this->consulta('SELECT id_ingrediente FROM INGREDIENTE WHERE nombre = ? AND id_categoria = ? ORDER BY creado_en DESC LIMIT 1', [$datos['name'], $idCategoria]);
-            $fila = $stmtId->get_result()->fetch_assoc();
-            $stmtId->close();
-            $id = $fila['id_ingrediente'];
+            $id = $this->conn->insert_id;
 
             $stock = (float) ($datos['stock'] ?? 0);
             if ($stock > 0) {
                 $stmtMov = $this->consulta(
-                    "INSERT INTO MOVIMIENTO_INVENTARIO (id_movimiento, id_ingrediente, id_admin, tipo_movimiento, cantidad, motivo)
-                     VALUES ('', ?, ?, 'entrada', ?, 'Stock inicial')",
+                    "INSERT INTO MOVIMIENTO_INVENTARIO (id_ingrediente, id_admin, tipo_movimiento, cantidad, motivo)
+                     VALUES (?, ?, 'entrada', ?, 'Stock inicial')",
                     [$id, $idAdmin, $stock]
                 );
                 $stmtMov->close();
@@ -141,8 +137,16 @@ class Ingrediente {
         $stmt->close();
     }
 
+    /**
+     * Baja logica (activo = 0), nunca DELETE fisico: un insumo con movimientos
+     * de inventario (que se crean automaticamente desde su alta, ver
+     * crearConStockInicial) o usado en alguna RECETA siempre tiene filas que
+     * lo referencian por llave foranea sin ON DELETE CASCADE -- un DELETE
+     * real fallaba con error 1451 en casi cualquier insumo, silenciosamente
+     * para el usuario porque el frontend no mostraba ese error.
+     */
     public function eliminar($id) {
-        $stmt = $this->consulta('DELETE FROM INGREDIENTE WHERE id_ingrediente = ?', [$id]);
+        $stmt = $this->consulta('UPDATE INGREDIENTE SET activo = 0 WHERE id_ingrediente = ?', [$id]);
         $stmt->close();
     }
 
@@ -163,9 +167,9 @@ class Ingrediente {
             $stmtUpd->close();
 
             $stmtMov = $this->consulta(
-                'INSERT INTO MOVIMIENTO_INVENTARIO (id_movimiento, id_ingrediente, id_admin, tipo_movimiento, cantidad, motivo)
-                 VALUES (?, ?, ?, ?, ?, ?)',
-                ['', $id, $idAdmin, $cantidad > 0 ? 'entrada' : 'salida', abs($cantidad), 'Ajuste manual']
+                'INSERT INTO MOVIMIENTO_INVENTARIO (id_ingrediente, id_admin, tipo_movimiento, cantidad, motivo)
+                 VALUES (?, ?, ?, ?, ?)',
+                [$id, $idAdmin, $cantidad > 0 ? 'entrada' : 'salida', abs($cantidad), 'Ajuste manual']
             );
             $stmtMov->close();
 
@@ -225,12 +229,53 @@ class Ingrediente {
 
             $motivo = implode(' + ', array_unique($consolidado[$id]['motivos']));
             $stmtMov = $this->consulta(
-                "INSERT INTO MOVIMIENTO_INVENTARIO (id_movimiento, id_ingrediente, id_admin, id_pedido, tipo_movimiento, cantidad, motivo)
-                 VALUES ('', ?, ?, ?, 'salida', ?, ?)",
+                "INSERT INTO MOVIMIENTO_INVENTARIO (id_ingrediente, id_admin, id_pedido, tipo_movimiento, cantidad, motivo)
+                 VALUES (?, ?, ?, 'salida', ?, ?)",
                 [$id, $idAdmin, $idPedido, $necesario, $motivo]
             );
             $stmtMov->close();
         }
+    }
+
+    /**
+     * Busca un insumo activo por nombre (sin distinguir mayusculas); si no
+     * existe lo crea con stock 0 en una categoria "General" del ambito dado.
+     * Usado por Producto::sincronizarReceta() cuando el admin escribe un
+     * insumo nuevo directo en la receta (en vez de elegirlo del inventario):
+     * antes se mandaba un id inventado por el navegador (ej. 'im1g01') que
+     * nunca existia en INGREDIENTE, y el INSERT en RECETA fallaba con
+     * "Incorrect integer value" (o antes, violacion de llave foranea).
+     */
+    public function resolverOCrear($nombre, $ambito) {
+        $nombre = trim((string) $nombre);
+        if ($nombre === '') {
+            return null;
+        }
+
+        $stmt = $this->consulta('SELECT id_ingrediente FROM INGREDIENTE WHERE activo = 1 AND LOWER(nombre) = LOWER(?) LIMIT 1', [$nombre]);
+        $fila = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($fila) {
+            return (int) $fila['id_ingrediente'];
+        }
+
+        $stmt = $this->consulta('SELECT id_categoria FROM CATEGORIA WHERE ambito = ? AND nombre = ? LIMIT 1', [$ambito, 'General']);
+        $categoria = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($categoria) {
+            $idCategoria = $categoria['id_categoria'];
+        } else {
+            $stmtCat = $this->consulta('INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, ?)', ['General', $ambito]);
+            $stmtCat->close();
+            $idCategoria = $this->conn->insert_id;
+        }
+
+        $stmtIns = $this->consulta(
+            'INSERT INTO INGREDIENTE (id_categoria, nombre, unidad_medida, cantidad_stock, costo_unitario, precio_extra) VALUES (?, ?, ?, ?, ?, ?)',
+            [$idCategoria, $nombre, 'unidad', 0, 0, 0]
+        );
+        $stmtIns->close();
+        return $this->conn->insert_id;
     }
 
     /** Resuelve un nombre de categoria a id_categoria; la crea (insumo_alimenticio) si no existe. */
@@ -247,13 +292,9 @@ class Ingrediente {
             return $fila['id_categoria'];
         }
 
-        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES ('', ?, 'insumo_alimenticio')", [$nombreCategoria]);
+        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, 'insumo_alimenticio')", [$nombreCategoria]);
         $stmtIns->close();
-
-        $stmtBuscar = $this->consulta("SELECT id_categoria FROM CATEGORIA WHERE nombre = ? AND ambito = 'insumo_alimenticio' LIMIT 1", [$nombreCategoria]);
-        $filaNueva = $stmtBuscar->get_result()->fetch_assoc();
-        $stmtBuscar->close();
-        return $filaNueva['id_categoria'];
+        return $this->conn->insert_id;
     }
 
     public function registrosDeMovimientos() {
@@ -272,9 +313,9 @@ class Ingrediente {
                 $cantidad = -$cantidad;
             }
             return [
-                'id' => $fila['id_movimiento'],
+                'id' => (string) $fila['id_movimiento'],
                 'date' => $fila['fecha_hora'],
-                'itemId' => $fila['id_ingrediente'],
+                'itemId' => (string) $fila['id_ingrediente'],
                 'itemName' => $fila['item_nombre'],
                 'amount' => $cantidad,
                 'type' => $fila['tipo_movimiento'] === 'salida' ? 'Salida' : 'Entrada',

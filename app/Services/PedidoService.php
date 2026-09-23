@@ -143,40 +143,40 @@ class PedidoService {
 
         $this->conn->begin_transaction();
         try {
-            $idPedido = generarUuid();
             $insertar = $this->consulta(
                 "INSERT INTO PEDIDO
-                    (id_pedido, id_cliente, direccion_entrega, destino_lat, destino_lng, estado,
+                    (id_cliente, direccion_entrega, destino_lat, destino_lng, estado,
                      canal_origen, metodo_pago, estado_pago, fecha_pago, comprobante_pago,
                      subtotal, costo_domicilio, descuento_cumpleanos, puntos_ganados, total)
-                 VALUES (?, ?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    $idPedido, $idCliente, $payload['address'] ?? $cliente['direccion'],
+                    $idCliente, $payload['address'] ?? $cliente['direccion'],
                     $payload['lat'] ?? null, $payload['lng'] ?? null,
                     $metodoPago, $estadoPago, $fechaPago, $comprobante,
                     $subtotal, $envio, $descuento, $puntos, $total,
                 ]
             );
             $insertar->close();
+            $idPedido = $this->conn->insert_id;
 
             $lineasDescuento = [];
 
             foreach ($itemsResueltos as $resuelto) {
                 $producto = $resuelto['producto'];
-                $idDetalle = generarUuid();
                 $esPersonalizado = (!empty($resuelto['extras']) || !empty($resuelto['removidos'])) ? 1 : 0;
 
                 $stmtDetalle = $this->consulta(
-                    'INSERT INTO DETALLE_PEDIDO (id_detalle, id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, es_personalizado)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [$idDetalle, $idPedido, $producto['id_producto'], $producto['nombre'], $resuelto['cantidad'], $resuelto['precioUnitario'], $esPersonalizado]
+                    'INSERT INTO DETALLE_PEDIDO (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, es_personalizado)
+                     VALUES (?, ?, ?, ?, ?, ?)',
+                    [$idPedido, $producto['id_producto'], $producto['nombre'], $resuelto['cantidad'], $resuelto['precioUnitario'], $esPersonalizado]
                 );
                 $stmtDetalle->close();
+                $idDetalle = $this->conn->insert_id;
 
                 foreach ($resuelto['extras'] as $extra) {
                     $stmtExtra = $this->consulta(
-                        "INSERT INTO PERSONALIZACION (id_personalizacion, id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
-                         VALUES ('', ?, ?, ?, 'agregar', 1, ?)",
+                        "INSERT INTO PERSONALIZACION (id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
+                         VALUES (?, ?, ?, 'agregar', 1, ?)",
                         [$idDetalle, $extra['id_ingrediente'], $extra['nombre'], $extra['precio_extra']]
                     );
                     $stmtExtra->close();
@@ -184,14 +184,14 @@ class PedidoService {
                     $lineasDescuento[] = [
                         'id_ingrediente' => $extra['id_ingrediente'],
                         'cantidad' => $resuelto['cantidad'],
-                        'motivo' => 'Extra pedido #ORD-' . $this->numeroPendiente($idPedido),
+                        'motivo' => 'Extra pedido #ORD-' . $idPedido,
                     ];
                 }
 
                 foreach ($resuelto['removidos'] as $removido) {
                     $stmtQuitar = $this->consulta(
-                        "INSERT INTO PERSONALIZACION (id_personalizacion, id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
-                         VALUES ('', ?, ?, ?, 'quitar', 1, 0)",
+                        "INSERT INTO PERSONALIZACION (id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
+                         VALUES (?, ?, ?, 'quitar', 1, 0)",
                         [$idDetalle, $removido['id_ingrediente'], $removido['nombre']]
                     );
                     $stmtQuitar->close();
@@ -258,17 +258,17 @@ class PedidoService {
         $stmtBuscarCat->close();
 
         if (!$filaCategoria) {
-            $stmtCrearCat = $this->consulta("INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES ('', 'Personalizado', 'menu')");
+            $stmtCrearCat = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES ('Personalizado', 'menu')");
             $stmtCrearCat->close();
-            $stmtBuscarCat2 = $this->consulta("SELECT id_categoria FROM CATEGORIA WHERE nombre = 'Personalizado' AND ambito = 'menu' LIMIT 1");
-            $filaCategoria = $stmtBuscarCat2->get_result()->fetch_assoc();
-            $stmtBuscarCat2->close();
+            $idCategoriaPersonalizado = $this->conn->insert_id;
+        } else {
+            $idCategoriaPersonalizado = $filaCategoria['id_categoria'];
         }
 
         $stmtCrearProd = $this->consulta(
-            "INSERT INTO PRODUCTO (id_producto, id_categoria, nombre, precio, estado)
-             VALUES ('', ?, 'Hamburguesa Personalizada', 0, 'oculto')",
-            [$filaCategoria['id_categoria']]
+            "INSERT INTO PRODUCTO (id_categoria, nombre, precio, estado)
+             VALUES (?, 'Hamburguesa Personalizada', 0, 'oculto')",
+            [$idCategoriaPersonalizado]
         );
         $stmtCrearProd->close();
 
@@ -276,13 +276,6 @@ class PedidoService {
         $producto = $stmtFinal->get_result()->fetch_assoc();
         $stmtFinal->close();
         return $producto;
-    }
-
-    private function numeroPendiente($idPedido) {
-        $stmt = $this->consulta('SELECT numero_pedido FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
-        $fila = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $fila ? (int) $fila['numero_pedido'] : 0;
     }
 
     /** @return array de {id_ingrediente, nombre, precio_extra} */
@@ -398,10 +391,10 @@ class PedidoService {
 
     public function calificar($idPedido, $puntaje, $comentario) {
         $stmt = $this->consulta(
-            'INSERT INTO RESENA (id_resena, id_pedido, puntaje, comentario)
-             VALUES (?, ?, ?, ?)
+            'INSERT INTO RESENA (id_pedido, puntaje, comentario)
+             VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE puntaje = VALUES(puntaje), comentario = VALUES(comentario)',
-            ['', $idPedido, $puntaje, $comentario]
+            [$idPedido, $puntaje, $comentario]
         );
         $stmt->close();
     }

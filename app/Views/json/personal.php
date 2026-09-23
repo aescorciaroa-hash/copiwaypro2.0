@@ -3,12 +3,14 @@
 
 function personal_cocina_a_json($fila) {
     return [
-        'id' => $fila['id_ayudante'],
+        'id' => (string) $fila['id_ayudante'],
         'name' => $fila['nombre'],
         'email' => $fila['correo'],
         'phone' => $fila['telefono'],
         'role' => 'Ayudante de cocina',
         'active' => (bool) $fila['activo'],
+        'hasPin' => !empty($fila['pin']),
+        'createdBy' => $fila['creado_por_nombre'] ?? null,
     ];
 }
 
@@ -20,16 +22,19 @@ function personal_domicilio_a_json($fila, $currentOrderId) {
     }
 
     return [
-        'id' => $fila['id_domiciliario'],
+        'id' => (string) $fila['id_domiciliario'],
         'name' => $fila['nombre'],
         'email' => $fila['correo'],
         'phone' => $fila['telefono'],
         'role' => 'Domiciliario',
         'active' => (bool) $fila['activo'],
+        'hasPin' => !empty($fila['pin']),
+        'createdBy' => $fila['creado_por_nombre'] ?? null,
         'location' => $ubicacion,
-        'currentOrderId' => $currentOrderId,
+        'currentOrderId' => $currentOrderId !== null ? (string) $currentOrderId : null,
         'plate' => $fila['placa'],
         'vehicle' => $fila['tipo_vehiculo'],
+        'vehicleModel' => $fila['modelo_vehiculo'],
         'baseCash' => (float) $fila['base_efectivo_asignada'],
     ];
 }

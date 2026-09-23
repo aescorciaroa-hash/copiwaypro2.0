@@ -47,9 +47,10 @@ class ClientController {
         $auth = new Autenticacion($conn);
         if ($auth->rolActual() !== 'admin') {
             // cart/preferences son autoservicio (el propio cliente guarda su
-            // carrito y su tema preferido en cada cambio); el resto de campos
-            // sensibles (email, points, totalSpent) siguen solo para admin.
-            $permitidos = ['name', 'phone', 'address', 'birthday', 'cart', 'preferences'];
+            // carrito y su tema preferido en cada cambio); points/totalSpent
+            // siguen solo para admin. email SÍ es autoservicio: el cliente
+            // puede editar el suyo (se valida duplicado más abajo).
+            $permitidos = ['name', 'email', 'phone', 'address', 'birthday', 'cart', 'preferences'];
             $datos = array_intersect_key($datos, array_flip($permitidos));
         }
 
@@ -59,6 +60,46 @@ class ClientController {
 
         $clienteModelo->actualizar($id, $datos);
         responderJson($clienteModelo->buscar($id));
+    }
+
+    /**
+     * Cambio de contraseña autenticado (distinto del flujo de "olvidé mi
+     * contraseña", que es para cuando NO tienes sesión). Antes el modal de
+     * "Cambiar Contraseña" en Mi Perfil no llamaba a ningún endpoint real --
+     * los campos ni siquiera estaban conectados a un estado, así que el botón
+     * "Actualizar" solo mostraba un mensaje de éxito falso.
+     */
+    public function changePassword($id) {
+        global $conn;
+        $auth = new Autenticacion($conn);
+
+        // Solo el propio cliente puede cambiar su contraseña (nunca el admin
+        // por esta vía: no conoce la contraseña actual del cliente).
+        if (!$auth->haySesion() || $auth->rolActual() !== 'client' || (string) $auth->idActual() !== (string) $id) {
+            responderError('No autorizado para este recurso.', 403);
+        }
+
+        $datos = $this->entrada();
+        $errores = [];
+        if (empty($datos['currentPassword'])) $errores['currentPassword'] = ['La contraseña actual es obligatoria.'];
+        if (empty($datos['newPassword']) || strlen((string) $datos['newPassword']) < 8) {
+            $errores['newPassword'] = ['La nueva contraseña debe tener al menos 8 caracteres.'];
+        }
+        if (!empty($errores)) {
+            responderError('Datos inválidos.', 422, $errores);
+        }
+
+        $clienteModelo = new Cliente($conn);
+        $filaCruda = $clienteModelo->buscarCrudo($id);
+        if (!$filaCruda) {
+            responderError('Cliente no encontrado.', 404);
+        }
+        if (!password_verify((string) $datos['currentPassword'], $filaCruda['contrasena'])) {
+            responderError('La contraseña actual no es correcta.', 422, ['currentPassword' => ['La contraseña actual no es correcta.']]);
+        }
+
+        $clienteModelo->actualizarContrasena($id, password_hash((string) $datos['newPassword'], PASSWORD_DEFAULT));
+        responderJson(['ok' => true]);
     }
 
     public function notifications($id) {
@@ -93,7 +134,7 @@ class ClientController {
             responderError('No autenticado.', 401);
         }
 
-        $esPropio = $auth->rolActual() === 'client' && $auth->idActual() === $id;
+        $esPropio = $auth->rolActual() === 'client' && (string) $auth->idActual() === (string) $id;
         $esAdmin = $auth->rolActual() === 'admin';
 
         if (!$esPropio && !$esAdmin) {

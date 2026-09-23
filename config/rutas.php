@@ -11,6 +11,7 @@ return [
     'POST /api/auth/login' => ['AuthController', 'login', []],
     'POST /api/auth/logout' => ['AuthController', 'logout', []],
     'GET /api/auth/me' => ['AuthController', 'me', []],
+    'GET /api/auth/csrf' => ['AuthController', 'csrf', []],
     'POST /api/auth/register' => ['AuthController', 'register', []],
     'POST /api/auth/forgot-password/request' => ['AuthController', 'forgotPasswordRequest', []],
     'POST /api/auth/forgot-password/reset' => ['AuthController', 'forgotPasswordReset', []],
@@ -27,6 +28,12 @@ return [
     'POST /api/products' => ['ProductController', 'store', ['admin']],
     'PUT /api/products/{id}' => ['ProductController', 'update', ['admin']],
     'DELETE /api/products/{id}' => ['ProductController', 'destroy', ['admin']],
+
+    // ---- Subida de imagenes ----
+    // Guarda el archivo en public/uploads/productos/ y devuelve su URL; evita
+    // guardar la foto como base64 en PRODUCTO.imagen (VARCHAR(255) truncaba
+    // cualquier imagen real con "Data too long for column 'imagen'").
+    'POST /api/uploads/product-image' => ['UploadController', 'productImage', ['admin']],
 
     // ---- Ingredientes (catalogo de personalizacion) ----
     'GET /api/ingredients' => ['IngredientController', 'index', []],
@@ -46,6 +53,7 @@ return [
     'GET /api/clients' => ['ClientController', 'index', ['admin']],
     'GET /api/clients/{id}' => ['ClientController', 'show', $TODOS_LOS_ROLES],
     'PUT /api/clients/{id}' => ['ClientController', 'update', $TODOS_LOS_ROLES],
+    'PUT /api/clients/{id}/password' => ['ClientController', 'changePassword', ['client']],
     'GET /api/clients/{id}/notifications' => ['ClientController', 'notifications', $TODOS_LOS_ROLES],
     'PATCH /api/clients/{id}/notifications/{notifId}/read' => ['ClientController', 'markNotificationRead', $TODOS_LOS_ROLES],
 

@@ -91,8 +91,8 @@ class Pedido {
                 FROM PEDIDO p
                 JOIN CLIENTE c ON c.id_cliente = p.id_cliente
                 LEFT JOIN DOMICILIARIO d ON d.id_domiciliario = p.id_domiciliario
-                WHERE p.id_pedido = ? OR p.numero_pedido = ?";
-        $stmt = $this->consulta($sql, [$id, $numero]);
+                WHERE p.id_pedido = ?";
+        $stmt = $this->consulta($sql, [$numero]);
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         if (!$fila) {
@@ -116,22 +116,23 @@ class Pedido {
     /** Version cruda (sin formar el JSON) por id interno o numero visible. */
     public function buscarCrudo($id) {
         $numero = $this->numeroDesdeId($id);
-        $stmt = $this->consulta('SELECT * FROM PEDIDO WHERE id_pedido = ? OR numero_pedido = ? LIMIT 1', [$id, $numero]);
+        $stmt = $this->consulta('SELECT * FROM PEDIDO WHERE id_pedido = ? LIMIT 1', [$numero]);
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
         return $fila ?: null;
     }
 
     /**
-     * Extrae el numero solo si $idVisible tiene el formato "#ORD-123" (el id
-     * que ve el frontend). Un UUID interno (id_pedido) tambien termina en
-     * digitos, asi que un patron laxo de "digitos al final" coincidia por
-     * accidente con OTRO pedido via numero_pedido en la consulta OR de
-     * buscar()/buscarCrudo() -- bug real, devolvia datos del pedido equivocado.
+     * id_pedido ES el numero visible del pedido ('#ORD-<id_pedido>'): acepta
+     * tanto ese formato con prefijo como el numero plano (rutas internas que
+     * ya traen solo el id).
      */
     private function numeroDesdeId($idVisible) {
-        if (preg_match('/^#ORD-(\d+)$/', $idVisible, $m)) {
+        if (preg_match('/^#ORD-(\d+)$/', (string) $idVisible, $m)) {
             return (int) $m[1];
+        }
+        if (is_numeric($idVisible)) {
+            return (int) $idVisible;
         }
         return 0;
     }
@@ -150,7 +151,7 @@ class Pedido {
             $extras = [];
             $removidos = [];
             foreach ($personalizaciones as $p) {
-                $entrada = ['id' => $p['id_ingrediente'], 'name' => $p['nombre_ingrediente'], 'quantity' => (float) $p['cantidad']];
+                $entrada = ['id' => (string) $p['id_ingrediente'], 'name' => $p['nombre_ingrediente'], 'quantity' => (float) $p['cantidad']];
                 if ($p['accion_modificacion'] === 'agregar') {
                     $extras[] = $entrada;
                 } else {
@@ -159,8 +160,8 @@ class Pedido {
             }
 
             $items[] = [
-                'id' => $detalle['id_detalle'],
-                'productId' => $detalle['id_producto'],
+                'id' => (string) $detalle['id_detalle'],
+                'productId' => (string) $detalle['id_producto'],
                 'name' => $detalle['nombre_producto'],
                 'quantity' => (int) $detalle['cantidad'],
                 'price' => (float) $detalle['precio_unitario'],

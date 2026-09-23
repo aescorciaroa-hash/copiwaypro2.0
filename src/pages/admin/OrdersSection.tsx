@@ -7,12 +7,12 @@ import {
 
 import { Order, OrderItem, Staff } from '../../store/almacenAplicacion';
 import { CustomZoomControl, RoutePolyline, DriverMockInfo } from '../AdminDashboard';
+import { vehicleWithModel } from '../../lib/format';
 
 interface OrdersSectionProps {
   orders: Order[];
   staff: Staff[];
   theme: string;
-  driversMockData: Record<number, DriverMockInfo>;
   highlightedOrderId: string | null;
   isMapExpanded: boolean;
   setIsMapExpanded: React.Dispatch<React.SetStateAction<boolean>>;
@@ -28,7 +28,6 @@ export default function OrdersSection({
   orders,
   staff,
   theme,
-  driversMockData,
   highlightedOrderId,
   isMapExpanded,
   setIsMapExpanded,
@@ -44,6 +43,26 @@ export default function OrdersSection({
     const enCocina = orders.filter(o => o.status === 'En Preparación').length;
     const listos = orders.filter(o => o.status === 'Listos').length;
     const enCamino = orders.filter(o => o.status === 'En Camino').length;
+
+    /** Arma el detalle del modal de repartidor con sus pedidos reales asignados (antes era 100% mock). */
+    const buildDriverInfo = (driver: Staff): DriverMockInfo => {
+      const pedidosDelDriver = orders.filter(o => o.id === driver.currentOrderId || (driver.currentOrderIds || []).includes(o.id));
+      return {
+        name: driver.name,
+        status: driver.currentOrderId ? 'EN RUTA' : 'DISPONIBLE',
+        phone: driver.phone || 'Sin teléfono registrado',
+        plate: driver.plate || 'Sin placa registrada',
+        vehicle: vehicleWithModel(driver.vehicle, driver.vehicleModel) || 'Sin vehículo registrado',
+        orders: pedidosDelDriver.map(o => ({
+          id: o.id,
+          client: o.client || 'Cliente',
+          address: o.address,
+          status: o.status,
+          items: (o.items || []).map(it => `${it.quantity || 1}x ${it.product?.name || it.name || 'Producto'}`),
+          total: o.total,
+        })),
+      };
+    };
 
     return (
       <div className="space-y-8">
@@ -256,18 +275,18 @@ export default function OrdersSection({
           )}
 
           {/* Interactive Leaflet Map for Neiva */}
-          <div className="absolute inset-0 z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500]">
-            <MapContainer 
-              center={[2.9273, -75.2818]} 
-              zoom={15} 
+          <div className={`absolute inset-0 z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500] ${theme === 'dark' ? 'leaflet-dark-tiles' : ''}`}>
+            <MapContainer
+              center={[2.9273, -75.2818]}
+              zoom={15}
               style={{ width: '100%', height: '100%' }}
               zoomControl={false}
               className="z-0"
             >
               <CustomZoomControl />
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url={theme === 'dark' ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
               
               {/* Restaurant / Origin */}
@@ -289,74 +308,42 @@ export default function OrdersSection({
                 <Popup>Cocina Oculta - Hamburguer Copiway</Popup>
               </Marker>
 
-              {/* Delivery Drivers */}
+              {/* Delivery Drivers (posiciones reales, reportadas por cada domiciliario) */}
               {staff.filter(s => s.role === 'Domiciliario' && s.location).map(driver => {
-                const driverOrder = orders.find(o => o.id === driver.currentOrderId);
-                const hasDestination = driverOrder && driverOrder.address;
                 return (
-                  <Marker 
-                    key={driver.id}
-                    position={driver.location as [number, number]}
-                    icon={L.divIcon({
-                      html: `<div style="position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
-                               <svg viewBox="0 0 32 32" style="width: 32px; height: 32px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));">
-                                 <path d="M16 0c-5.5 0-10 4.5-10 10 0 7.5 10 22 10 22s10-14.5 10-22c0-5.5-4.5-10-10-10z" fill="#3b82f6"/>
-                                 <circle cx="16" cy="10" r="6" fill="#fff"/>
-                                 <path d="M16 12.5c-.3 0-1.8-1.5-2.5-2.2-.8-.8-.8-2 0-2.8.8-.8 2-.8 2.8 0 .2.2.4.4.5.7.1-.3.3-.5.5-.7.8-.8 2-.8 2.8 0 .8.8.8 2 0 2.8-.7.7-2.2 2.2-2.5 2.2H16z" fill="#3b82f6"/>
-                               </svg>
-                             </div>`,
-                      className: 'custom-marker',
-                      iconSize: [30, 30],
-                      iconAnchor: [15, 30]
-                    })}
-                  >
-                    <Popup>
-                      <strong>{driver.name}</strong><br/>
-                      Estado: {driver.currentOrderId ? 'En Ruta: ' + driver.currentOrderId : 'Disponible'}
-                    </Popup>
-                  </Marker>
+                  <React.Fragment key={driver.id}>
+                    {driver.destCoords && (
+                      <RoutePolyline
+                        origin={driver.location as [number, number]}
+                        destination={driver.destCoords}
+                        outerColor="#1e3a8a"
+                        innerColor="#3b82f6"
+                      />
+                    )}
+                    <Marker
+                      position={driver.location as [number, number]}
+                      eventHandlers={{ click: () => setSelectedDriverInfo(buildDriverInfo(driver)) }}
+                      icon={L.divIcon({
+                        html: `<div style="position: relative; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                                 <svg viewBox="0 0 32 32" style="width: 32px; height: 32px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.3));">
+                                   <path d="M16 0c-5.5 0-10 4.5-10 10 0 7.5 10 22 10 22s10-14.5 10-22c0-5.5-4.5-10-10-10z" fill="#3b82f6"/>
+                                   <circle cx="16" cy="10" r="6" fill="#fff"/>
+                                   <path d="M16 12.5c-.3 0-1.8-1.5-2.5-2.2-.8-.8-.8-2 0-2.8.8-.8 2-.8 2.8 0 .2.2.4.4.5.7.1-.3.3-.5.5-.7.8-.8 2-.8 2.8 0 .8.8.8 2 0 2.8-.7.7-2.2 2.2-2.5 2.2H16z" fill="#3b82f6"/>
+                                 </svg>
+                               </div>`,
+                        className: 'custom-marker',
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 30]
+                      })}
+                    >
+                      <Popup>
+                        <strong>{driver.name}</strong><br/>
+                        Estado: {driver.currentOrderId ? 'En Ruta: ' + driver.currentOrderId : 'Disponible'}
+                      </Popup>
+                    </Marker>
+                  </React.Fragment>
                 );
               })}
-
-              {/* Delivery 1 Route */}
-              <RoutePolyline 
-                origin={[2.9273, -75.2818]} 
-                destination={[2.9380, -75.2900]} 
-                outerColor="#1e3a8a" 
-                innerColor="#3b82f6" 
-              />
-
-              {/* Delivery 1 Driver Position */}
-              <Marker 
-                position={[2.9380, -75.2900]} 
-                eventHandlers={{ click: () => setSelectedDriverInfo(driversMockData[1]) }}
-                icon={L.divIcon({
-                  html: `<div style="width: 24px; height: 24px; background-color: #3b82f6; border-radius: 50%; border: 4px solid white; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.6); cursor: pointer;"></div>`,
-                  className: 'custom-marker',
-                  iconSize: [24, 24],
-                  iconAnchor: [12, 12]
-                })}
-              />
-              
-              {/* Delivery 2 Route */}
-              <RoutePolyline 
-                origin={[2.9273, -75.2818]} 
-                destination={[2.9220, -75.2750]} 
-                outerColor="#374151" 
-                innerColor="#9ca3af" 
-              />
-
-              {/* Delivery 2 Driver Position */}
-              <Marker 
-                position={[2.9220, -75.2750]} 
-                eventHandlers={{ click: () => setSelectedDriverInfo(driversMockData[2]) }}
-                icon={L.divIcon({
-                  html: `<div style="width: 24px; height: 24px; background-color: #6b7280; border-radius: 50%; border: 4px solid white; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); cursor: pointer;"></div>`,
-                  className: 'custom-marker',
-                  iconSize: [24, 24],
-                  iconAnchor: [12, 12]
-                })}
-              />
             </MapContainer>
           </div>
           
@@ -375,31 +362,30 @@ export default function OrdersSection({
           )}
           
           <div className="flex gap-4 z-10 mt-auto overflow-x-auto pb-2 pointer-events-auto">
-            <div 
-              onClick={() => setSelectedDriverInfo(driversMockData[1])}
-              className="bg-white/90 dark:bg-[#151515]/90 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-3 shadow-sm border border-blue-500/20 dark:border-blue-500/30 cursor-pointer hover:bg-white dark:hover:bg-black transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-500/20 animate-pulse">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+            {staff.filter(s => s.role === 'Domiciliario' && s.active).length === 0 ? (
+              <div className="bg-white/90 dark:bg-[#151515]/90 backdrop-blur-md rounded-full px-4 py-2 text-xs font-medium text-gray-500 dark:text-stone-400 shadow-sm border border-gray-200 dark:border-stone-800">
+                Sin domiciliarios activos
               </div>
-              <div>
-                <p className="text-xs font-bold text-gray-900 dark:text-white">{driversMockData[1].name.split(" - ")[1] || "Camilo"}</p>
-                <p className="text-[9px] font-black text-blue-500 tracking-wider">EN RUTA</p>
-              </div>
-            </div>
-            
-            <div 
-              onClick={() => setSelectedDriverInfo(driversMockData[2])}
-              className="bg-white/90 dark:bg-[#151515]/90 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-3 shadow-sm border border-gray-200 dark:border-stone-800 cursor-pointer hover:bg-white dark:hover:bg-black transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-gray-400 dark:bg-stone-700 text-white flex items-center justify-center">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-gray-900 dark:text-white">{driversMockData[2].name.split(" - ")[1] || "Juan"}</p>
-                <p className="text-[9px] font-black text-gray-500 dark:text-gray-400 tracking-wider">CARGANDO</p>
-              </div>
-            </div>
+            ) : (
+              staff.filter(s => s.role === 'Domiciliario' && s.active).map(driver => {
+                const enRuta = !!driver.currentOrderId;
+                return (
+                  <div
+                    key={driver.id}
+                    onClick={() => setSelectedDriverInfo(buildDriverInfo(driver))}
+                    className={`bg-white/90 dark:bg-[#151515]/90 backdrop-blur-md rounded-full px-4 py-2 flex items-center gap-3 shadow-sm border cursor-pointer hover:bg-white dark:hover:bg-black transition-colors ${enRuta ? 'border-blue-500/20 dark:border-blue-500/30' : 'border-gray-200 dark:border-stone-800'}`}
+                  >
+                    <div className={`w-8 h-8 rounded-full text-white flex items-center justify-center ${enRuta ? 'bg-blue-500 shadow-lg shadow-blue-500/20 animate-pulse' : 'bg-gray-400 dark:bg-stone-700'}`}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={enRuta ? 2.5 : 2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-gray-900 dark:text-white">{driver.name}</p>
+                      <p className={`text-[9px] font-black tracking-wider ${enRuta ? 'text-blue-500' : 'text-gray-500 dark:text-gray-400'}`}>{enRuta ? 'EN RUTA' : 'DISPONIBLE'}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

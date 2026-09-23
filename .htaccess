@@ -10,6 +10,12 @@
     # 1) Assets estaticos compilados por Vite (JS, CSS, fuentes, imagenes) -> servir tal cual
     RewriteRule ^assets/(.*)$ public/assets/$1 [L]
 
-    # 2) Todo lo demas (API y paginas) -> front controller unico
+    # 2) Imagenes subidas por el admin (fotos de producto, ver UploadController)
+    # -> servir tal cual, igual que los assets. Sin esta regla caian en la 3)
+    # y el front controller las trataba como una pagina inexistente (404 en
+    # vez de la imagen).
+    RewriteRule ^uploads/(.*)$ public/uploads/$1 [L]
+
+    # 3) Todo lo demas (API y paginas) -> front controller unico
     RewriteRule ^ public/index.php [L]
 </IfModule>

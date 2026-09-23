@@ -86,7 +86,7 @@ class Producto {
         $ingredientes = [];
         $empaques = [];
         foreach ($filas as $r) {
-            $entrada = ['id' => $r['id_ingrediente'], 'name' => $r['nombre'], 'quantityDeduct' => (float) $r['cantidad_necesaria']];
+            $entrada = ['id' => (string) $r['id_ingrediente'], 'name' => $r['nombre'], 'quantityDeduct' => (float) $r['cantidad_necesaria']];
             if ($r['ambito'] === 'empaque_desechable') {
                 $empaques[] = $entrada;
             } else {
@@ -94,6 +94,28 @@ class Producto {
             }
         }
         return ['ingredientes' => $ingredientes, 'empaques' => $empaques];
+    }
+
+    /**
+     * El frontend maneja las etiquetas como texto para mostrar ("Más Vendido",
+     * con tilde y espacio); la columna etiqueta_destacada es un ENUM que solo
+     * acepta los slugs exactos ('mas_vendido', etc). "Recomendado"/"Nuevo"
+     * coincidian por casualidad (misma palabra), pero "Más Vendido" nunca
+     * coincidia con 'mas_vendido' y el INSERT/UPDATE fallaba con "Data
+     * truncated for column 'etiqueta_destacada'".
+     */
+    private const BADGE_A_ENUM = [
+        'Más Vendido' => 'mas_vendido',
+        'Recomendado' => 'recomendado',
+        'Nuevo' => 'nuevo',
+        'Especialidad' => 'especialidad',
+    ];
+
+    private function badgeAEnum($badge) {
+        if (empty($badge)) {
+            return 'ninguna';
+        }
+        return self::BADGE_A_ENUM[$badge] ?? (in_array($badge, self::BADGE_A_ENUM, true) ? $badge : 'ninguna');
     }
 
     /** Crea el producto junto con su RECETA (ingredients + packaging), en transaccion. */
@@ -104,20 +126,17 @@ class Producto {
 
             $stmt = $this->consulta(
                 'INSERT INTO PRODUCTO
-                    (id_producto, id_categoria, nombre, descripcion, precio, costo_calculado,
+                    (id_categoria, nombre, descripcion, precio, costo_calculado,
                      imagen, tiempo_preparacion, estado, etiqueta_destacada)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
-                    '', $idCategoria, $datos['name'], $datos['description'] ?? null, $datos['price'],
+                    $idCategoria, $datos['name'], $datos['description'] ?? null, $datos['price'],
                     $datos['costPrice'] ?? null, $datos['image'] ?? null, $datos['prepTime'] ?? null,
-                    ($datos['active'] ?? true) ? 'activo' : 'oculto', $datos['badge'] ?? 'ninguna',
+                    ($datos['active'] ?? true) ? 'activo' : 'oculto', $this->badgeAEnum($datos['badge'] ?? null),
                 ]
             );
             $stmt->close();
-
-            $stmtId = $this->consulta('SELECT id_producto FROM PRODUCTO WHERE nombre = ? ORDER BY creado_en DESC LIMIT 1', [$datos['name']]);
-            $id = $stmtId->get_result()->fetch_assoc()['id_producto'];
-            $stmtId->close();
+            $id = $this->conn->insert_id;
 
             $this->sincronizarReceta($id, $datos['ingredients'] ?? [], $datos['packaging'] ?? []);
 
@@ -152,7 +171,7 @@ class Producto {
             }
             if (array_key_exists('badge', $datos)) {
                 $campos[] = 'etiqueta_destacada = ?';
-                $valores[] = $datos['badge'] ?: 'ninguna';
+                $valores[] = $this->badgeAEnum($datos['badge']);
             }
             if (array_key_exists('category', $datos)) {
                 $campos[] = 'id_categoria = ?';
@@ -181,17 +200,35 @@ class Producto {
         $stmt->close();
     }
 
+    /**
+     * $item['id'] puede venir vacio o ser un id inventado por el navegador
+     * (ej. 'im1g01') cuando el admin escribe un insumo nuevo directo en la
+     * receta en vez de elegirlo del inventario -- antes eso se mandaba tal
+     * cual a RECETA.id_ingrediente y fallaba ("Incorrect integer value" /
+     * violacion de llave foranea). Ahora se resuelve por nombre contra
+     * INGREDIENTE real, creandolo si hace falta (Ingrediente::resolverOCrear).
+     */
     private function sincronizarReceta($idProducto, $ingredientes, $empaques) {
         $stmtDel = $this->consulta('DELETE FROM RECETA WHERE id_producto = ?', [$idProducto]);
         $stmtDel->close();
 
-        foreach (array_merge($ingredientes, $empaques) as $item) {
-            if (empty($item['id'])) {
+        $ingredienteModelo = new Ingrediente($this->conn);
+        $lista = array_merge(
+            array_map(function ($item) { $item['ambito'] = 'insumo_alimenticio'; return $item; }, $ingredientes),
+            array_map(function ($item) { $item['ambito'] = 'empaque_desechable'; return $item; }, $empaques)
+        );
+
+        foreach ($lista as $item) {
+            if (empty($item['name'])) {
+                continue;
+            }
+            $idIngrediente = $ingredienteModelo->resolverOCrear($item['name'], $item['ambito']);
+            if ($idIngrediente === null) {
                 continue;
             }
             $stmtIns = $this->consulta(
-                'INSERT INTO RECETA (id_receta, id_producto, id_ingrediente, cantidad_necesaria) VALUES (?, ?, ?, ?)',
-                ['', $idProducto, $item['id'], $item['quantityDeduct'] ?? 1]
+                'INSERT INTO RECETA (id_producto, id_ingrediente, cantidad_necesaria) VALUES (?, ?, ?)',
+                [$idProducto, $idIngrediente, $item['quantity'] ?? 1]
             );
             $stmtIns->close();
         }
@@ -210,12 +247,8 @@ class Producto {
             return $fila['id_categoria'];
         }
 
-        $stmtIns = $this->consulta('INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES (?, ?, ?)', ['', $nombreCategoria, 'menu']);
+        $stmtIns = $this->consulta('INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, ?)', [$nombreCategoria, 'menu']);
         $stmtIns->close();
-
-        $stmtBuscar = $this->consulta('SELECT id_categoria FROM CATEGORIA WHERE nombre = ? AND ambito = ? LIMIT 1', [$nombreCategoria, 'menu']);
-        $filaNueva = $stmtBuscar->get_result()->fetch_assoc();
-        $stmtBuscar->close();
-        return $filaNueva['id_categoria'];
+        return $this->conn->insert_id;
     }
 }

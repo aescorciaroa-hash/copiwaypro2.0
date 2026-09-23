@@ -20,6 +20,7 @@ class SyncController {
             $ingredienteModelo = new Ingrediente($conn);
             $payload['inventory'] = $ingredienteModelo->listarInventario();
             $payload['ingredients'] = $ingredienteModelo->listarIngredientes();
+            $payload['inventoryLogs'] = $ingredienteModelo->registrosDeMovimientos();
             $payload['staff'] = (new Personal($conn))->listar();
             $payload['orders'] = (new Pedido($conn))->porRol($rol, $idUsuario);
         }
@@ -35,6 +36,14 @@ class SyncController {
         if ($rol === 'client') {
             $payload['orders'] = (new Pedido($conn))->porRol($rol, $idUsuario);
             $payload['ingredients'] = (new Ingrediente($conn))->listarIngredientes();
+            // El cliente necesita ver su propio registro en "Mi Perfil" (nombre,
+            // correo, telefono, etc.). Antes 'clients' solo se enviaba para admin,
+            // asi que el perfil del cliente se quedaba con los datos de ejemplo
+            // hardcodeados en ClientDashboard.tsx y nunca los reales.
+            $cliente = (new Cliente($conn))->buscar($idUsuario);
+            if ($cliente) {
+                $payload['clients'] = [$cliente];
+            }
         }
 
         $etag = '"' . md5(json_encode($payload)) . '"';

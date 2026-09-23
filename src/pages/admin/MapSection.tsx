@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import {
-  ChevronLeft, Utensils, Users, Truck, Package, MapPin, Share2, Plus, Edit2
+  ChevronLeft, Utensils, Users, Truck, Package, MapPin, Share2, Plus, Edit2, X, Phone
 } from 'lucide-react';
 
-import { formatCOP } from '../../lib/format';
+import { formatCOP, vehicleWithModel } from '../../lib/format';
 import { Order, Staff } from '../../store/almacenAplicacion';
 import { RoutePolyline, CustomZoomControl } from '../AdminDashboard';
 
@@ -18,6 +19,7 @@ interface MapSectionProps {
   handleNavigateToOrders: (orderId?: string) => void;
   setEditingAddressOrder: (order: Order | null) => void;
   setNewAddress: (address: string) => void;
+  handleOpenStaffModal: (emp: Staff) => void;
 }
 
 export default function MapSection({
@@ -29,7 +31,10 @@ export default function MapSection({
   handleNavigateToOrders,
   setEditingAddressOrder,
   setNewAddress,
+  handleOpenStaffModal,
 }: MapSectionProps) {
+    const [showDriversModal, setShowDriversModal] = useState(false);
+    const drivers = staff.filter(s => s.role === 'Domiciliario');
     const kitchenCoords: [number, number] = [2.9273, -75.2819];
     const activeDeliveryOrders = orders.filter(o => o.status === 'En Camino' || o.status === 'Listos');
     const enCaminoOrders = orders.filter(o => o.status === 'En Camino');
@@ -87,6 +92,7 @@ export default function MapSection({
     });
 
     return (
+      <>
       <div className="space-y-6">
         {/* Header con navegación rápida */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-[#151515] p-6 rounded-[28px] border border-gray-100 dark:border-stone-800 shadow-sm">
@@ -123,7 +129,7 @@ export default function MapSection({
               <span>Ver Comandas</span>
             </button>
             <button
-              onClick={() => setActiveTab('staff')}
+              onClick={() => setShowDriversModal(true)}
               className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-brand-orange text-white text-xs font-bold hover:bg-[#e66500] transition-colors flex items-center justify-center gap-2 shadow-md shadow-brand-orange/20 cursor-pointer"
             >
               <Users className="w-4 h-4" />
@@ -217,7 +223,7 @@ export default function MapSection({
             </div>
 
             {/* Contenedor del Mapa */}
-            <div className="h-[460px] sm:h-[520px] w-full rounded-[24px] overflow-hidden relative border border-gray-100 dark:border-stone-800">
+            <div className={`h-[460px] sm:h-[520px] w-full rounded-[24px] overflow-hidden relative border border-gray-100 dark:border-stone-800 ${theme === 'dark' ? 'leaflet-dark-tiles' : ''}`}>
               <MapContainer
                 center={kitchenCoords}
                 zoom={14}
@@ -225,10 +231,8 @@ export default function MapSection({
                 zoomControl={false}
               >
                 <TileLayer
-                  url={theme === 'dark'
-                    ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                    : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
-                  attribution='&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; OpenStreetMap'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 />
 
                 <CustomZoomControl />
@@ -350,7 +354,7 @@ export default function MapSection({
                         <div>
                           <p className="font-bold text-sm text-gray-900 dark:text-white">{driver.name}</p>
                           <p className="text-xs text-gray-500 dark:text-stone-400">
-                            {driver.vehicle || 'Motocicleta'} {driver.plate ? `• ${driver.plate}` : ''}
+                            {vehicleWithModel(driver.vehicle, driver.vehicleModel) || 'Motocicleta'} {driver.plate ? `• ${driver.plate}` : ''}
                           </p>
                         </div>
                         <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${
@@ -462,5 +466,80 @@ export default function MapSection({
           </div>
         </div>
       </div>
+
+      {/* Modal Gestionar Repartidores: vista propia, solo domiciliarios (no ayudantes de cocina).
+          No navega a Equipo y Personal -- reutiliza el mismo modal de edicion de empleado
+          (handleOpenStaffModal, ya renderizado globalmente en AdminDashboard) para gestionar
+          cada uno sin salir de este contexto. */}
+      <AnimatePresence>
+        {showDriversModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setShowDriversModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 20 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-[#0a0a0a] w-full max-w-lg max-h-[85vh] overflow-y-auto rounded-[32px] shadow-2xl border border-gray-100 dark:border-stone-800 flex flex-col"
+            >
+              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex justify-between items-center bg-gray-50 dark:bg-[#151515] sticky top-0 z-10">
+                <div>
+                  <h2 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2.5">
+                    <Users className="w-5 h-5 text-brand-orange" />
+                    Repartidores
+                  </h2>
+                  <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{drivers.length} {drivers.length === 1 ? 'domiciliario registrado' : 'domiciliarios registrados'}</p>
+                </div>
+                <button
+                  onClick={() => setShowDriversModal(false)}
+                  className="w-9 h-9 rounded-full bg-white dark:bg-stone-800 border border-gray-200 dark:border-stone-700 flex items-center justify-center text-gray-500 hover:bg-gray-100 dark:hover:bg-stone-700 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-2">
+                {drivers.length === 0 ? (
+                  <div className="py-12 text-center text-gray-500 dark:text-stone-400 text-sm font-medium">
+                    No hay domiciliarios registrados.
+                  </div>
+                ) : drivers.map(driver => (
+                  <div
+                    key={driver.id}
+                    onClick={() => { setShowDriversModal(false); handleOpenStaffModal(driver); }}
+                    className="flex items-center gap-4 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 hover:bg-gray-50 dark:hover:bg-stone-900/40 transition-colors cursor-pointer"
+                  >
+                    <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold flex items-center justify-center text-sm shrink-0">
+                      {driver.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-gray-900 dark:text-white truncate">{driver.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-stone-400 truncate">
+                        {vehicleWithModel(driver.vehicle, driver.vehicleModel) || 'Sin vehículo'} {driver.plate ? `· ${driver.plate}` : ''}
+                      </p>
+                      {driver.phone && (
+                        <p className="text-[11px] text-gray-400 dark:text-stone-500 flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3" /> {driver.phone}
+                        </p>
+                      )}
+                    </div>
+                    {driver.active ? (
+                      <span className="px-2.5 py-1 bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400 border border-green-200/50 dark:border-green-800/50 rounded-full text-[10px] font-bold tracking-wide uppercase shrink-0">Activo</span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200/50 dark:border-red-800/50 rounded-full text-[10px] font-bold tracking-wide uppercase shrink-0">Inactivo</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
     );
 }

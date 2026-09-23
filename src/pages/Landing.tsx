@@ -437,18 +437,18 @@ export default function Landing() {
               </div>
               
               {/* Mapa */}
-              <div className="rounded-[32px] overflow-hidden border border-gray-100 dark:border-stone-800 h-[400px] lg:h-full relative z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500]">
-                <MapContainer 
-                  center={[2.9273, -75.2818]} 
-                  zoom={13} 
+              <div className={`rounded-[32px] overflow-hidden border border-gray-100 dark:border-stone-800 h-[400px] lg:h-full relative z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500] ${theme === 'dark' ? 'leaflet-dark-tiles' : ''}`}>
+                <MapContainer
+                  center={[2.9273, -75.2818]}
+                  zoom={13}
                   style={{ height: '100%', width: '100%' }}
                   zoomControl={false}
                   className="z-0"
                 >
                   <CustomZoomControl />
                   <TileLayer
-                    url={theme === 'dark' ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   />
                   <Marker 
                     position={[2.9273, -75.2818]}
