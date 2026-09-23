@@ -31,6 +31,12 @@ class StaffController {
         if (empty($datos['email']) || !filter_var($datos['email'], FILTER_VALIDATE_EMAIL)) $errores['email'] = ['El campo email debe ser un correo válido.'];
         if (empty($datos['password']) || strlen((string) $datos['password']) < 8) $errores['password'] = ['El campo password debe tener al menos 8 caracteres.'];
         if (empty($datos['role']) || !in_array($datos['role'], ['Ayudante de cocina', 'Domiciliario'])) $errores['role'] = ['El campo role no es válido.'];
+        if (($datos['role'] ?? null) === 'Domiciliario' && !empty($datos['vehicle']) && !in_array($datos['vehicle'], ['moto', 'bicicleta', 'carro', 'a_pie'])) {
+            $errores['vehicle'] = ['El campo vehicle no es válido.'];
+        }
+        if (empty($datos['pin']) || !preg_match('/^\d{4}$/', (string) $datos['pin'])) {
+            $errores['pin'] = ['El PIN debe tener exactamente 4 dígitos.'];
+        }
         if (!empty($errores)) {
             responderError('Datos inválidos.', 422, $errores);
         }
@@ -49,8 +55,8 @@ class StaffController {
         }
 
         $todos = $personalModelo->listar();
-        $creado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === $id; }));
-        responderJson($creado[0] ?? ['id' => $id], 201);
+        $creado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === (string) $id; }));
+        responderJson($creado[0] ?? ['id' => (string) $id], 201);
     }
 
     public function update($id) {
@@ -63,6 +69,12 @@ class StaffController {
         if (!empty($datos['email']) && correoUsadoEnCualquierTabla($conn, $datos['email'], $id)) {
             responderError('Ya existe una cuenta con ese correo.', 409);
         }
+        if (!empty($datos['vehicle']) && !in_array($datos['vehicle'], ['moto', 'bicicleta', 'carro', 'a_pie'])) {
+            responderError('Datos inválidos.', 422, ['vehicle' => ['El campo vehicle no es válido.']]);
+        }
+        if (!empty($datos['pin']) && !preg_match('/^\d{4}$/', (string) $datos['pin'])) {
+            responderError('Datos inválidos.', 422, ['pin' => ['El PIN debe tener exactamente 4 dígitos.']]);
+        }
 
         $personalModelo = new Personal($conn);
         $tabla = $personalModelo->actualizar($id, $datos);
@@ -71,13 +83,16 @@ class StaffController {
         }
 
         $todos = $personalModelo->listar();
-        $actualizado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === $id; }));
-        responderJson($actualizado[0] ?? ['id' => $id]);
+        $actualizado = array_values(array_filter($todos, function ($s) use ($id) { return $s['id'] === (string) $id; }));
+        responderJson($actualizado[0] ?? ['id' => (string) $id]);
     }
 
     public function destroy($id) {
         global $conn;
-        $tabla = (new Personal($conn))->eliminarSuave($id);
+        // 'role' es opcional (query string) para desambiguar el mismo id entre
+        // AYUDANTE_COCINA y DOMICILIARIO -- ver Personal::eliminarSuave().
+        $rol = $_GET['role'] ?? null;
+        $tabla = (new Personal($conn))->eliminarSuave($id, $rol);
         if ($tabla === null) {
             responderError('Miembro de staff no encontrado.', 404);
         }
@@ -89,7 +104,7 @@ class StaffController {
         global $conn;
         $auth = new Autenticacion($conn);
 
-        if (!$auth->haySesion() || $auth->rolActual() !== 'delivery' || $auth->idActual() !== $id) {
+        if (!$auth->haySesion() || $auth->rolActual() !== 'delivery' || (string) $auth->idActual() !== (string) $id) {
             responderError('No autorizado para este recurso.', 403);
         }
 

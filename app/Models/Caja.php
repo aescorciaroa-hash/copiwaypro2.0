@@ -119,7 +119,7 @@ class Caja {
         $stmtAud->close();
 
         $stmtPedidos = $this->consulta(
-            'SELECT p.numero_pedido, p.total, p.metodo_pago, c.nombre AS cliente
+            'SELECT p.id_pedido, p.total, p.metodo_pago, c.nombre AS cliente
              FROM PEDIDO p JOIN CLIENTE c ON c.id_cliente = p.id_cliente
              WHERE p.id_reporte = ?',
             [$idReporte]
@@ -156,7 +156,7 @@ class Caja {
             }, $auditoria),
             'orders' => array_map(function ($o) {
                 return [
-                    'id' => '#ORD-' . $o['numero_pedido'],
+                    'id' => '#ORD-' . $o['id_pedido'],
                     'client' => $o['cliente'],
                     'total' => (float) $o['total'],
                     'paymentMethod' => $o['metodo_pago'] === 'efectivo' ? 'cash' : 'online',

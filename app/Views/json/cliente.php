@@ -8,7 +8,7 @@
 function cliente_a_json($datosCrudos) {
     $fila = $datosCrudos['fila'];
     return [
-        'id' => $fila['id_cliente'],
+        'id' => (string) $fila['id_cliente'],
         'name' => $fila['nombre'],
         'phone' => $fila['telefono'],
         'email' => $fila['correo'],
@@ -26,7 +26,7 @@ function cliente_a_json($datosCrudos) {
 
 function notificacion_a_json($fila) {
     return [
-        'id' => $fila['id_notificacion_cliente'],
+        'id' => (string) $fila['id_notificacion_cliente'],
         'title' => $fila['titulo'],
         'message' => $fila['mensaje'],
         'date' => $fila['fecha'],

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
 import { api, ApiError, rutaBase } from '../servicios/api';
@@ -9,6 +9,8 @@ export default function ForgotPassword() {
 
   const [step, setStep] = useState<1 | 2>(1);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Form for Step 1
   const form1 = useForm({
@@ -213,19 +215,29 @@ export default function ForgotPassword() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-stone-300 mb-2">Nueva contraseña</label>
-                  <input 
-                    type="password"
-                    name="newPassword"
-                    placeholder="••••••••"
-                    value={form2.values.newPassword}
-                    onChange={form2.handleChange}
-                    onBlur={form2.handleBlur}
-                    className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] px-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 ${
-                      form2.touched.newPassword && form2.errors.newPassword 
-                        ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
-                        : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
-                    }`}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showNewPassword ? 'text' : 'password'}
+                      name="newPassword"
+                      placeholder="••••••••"
+                      value={form2.values.newPassword}
+                      onChange={form2.handleChange}
+                      onBlur={form2.handleBlur}
+                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] px-4 pr-11 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 ${
+                        form2.touched.newPassword && form2.errors.newPassword
+                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10'
+                          : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      tabIndex={-1}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                    >
+                      {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                   {form2.touched.newPassword && form2.errors.newPassword && (
                     <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium">
                       <AlertCircle className="w-4 h-4 shrink-0" />
@@ -235,19 +247,29 @@ export default function ForgotPassword() {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-stone-300 mb-2">Confirmar contraseña</label>
-                  <input 
-                    type="password"
-                    name="confirmPassword"
-                    placeholder="••••••••"
-                    value={form2.values.confirmPassword}
-                    onChange={form2.handleChange}
-                    onBlur={form2.handleBlur}
-                    className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] px-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 ${
-                      form2.touched.confirmPassword && form2.errors.confirmPassword 
-                        ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
-                        : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
-                    }`}
-                  />
+                  <div className="relative">
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      name="confirmPassword"
+                      placeholder="••••••••"
+                      value={form2.values.confirmPassword}
+                      onChange={form2.handleChange}
+                      onBlur={form2.handleBlur}
+                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] px-4 pr-11 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 ${
+                        form2.touched.confirmPassword && form2.errors.confirmPassword
+                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10'
+                          : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      tabIndex={-1}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                   {form2.touched.confirmPassword && form2.errors.confirmPassword && (
                     <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium">
                       <AlertCircle className="w-4 h-4 shrink-0" />

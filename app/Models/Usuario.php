@@ -46,8 +46,8 @@ class Usuario {
     /** Crea un ADMINISTRADOR (nivel_acceso 'programador' o 'maestro'). Devuelve la fila creada. */
     public function crear($datos) {
         $stmt = $this->consulta(
-            "INSERT INTO ADMINISTRADOR (id_admin, nombre, correo, telefono, contrasena, nivel_acceso, creado_por)
-             VALUES ('', ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO ADMINISTRADOR (nombre, correo, telefono, contrasena, nivel_acceso, creado_por)
+             VALUES (?, ?, ?, ?, ?, ?)",
             [
                 $datos['nombre'], $datos['correo'], $datos['telefono'],
                 password_hash($datos['password'], PASSWORD_BCRYPT),

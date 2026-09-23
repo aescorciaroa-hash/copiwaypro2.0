@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2, Check, Mail } from 'lucide-react';
+import { Utensils, Lock, ArrowLeft, ArrowRight, Sun, Moon, AlertCircle, CheckCircle2, Check, Mail, Eye, EyeOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
 import { api, ApiError, irA, rutaBase } from '../servicios/api';
@@ -8,6 +8,7 @@ export default function Login() {
   const { theme, toggleTheme } = useTheme();
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const {
     values,
@@ -218,26 +219,34 @@ export default function Login() {
                   <a href={rutaBase() + '/forgot-password'} className="text-sm font-medium text-brand-orange hover:text-[#e66500] transition-colors">¿Olvidaste tu contraseña?</a>
                 </div>
                 <div className="relative group">
-                  <input 
-                    type="password" 
+                  <input
+                    type={showPassword ? 'text' : 'password'}
                     name="password"
                     placeholder="••••••••"
                     value={values.password}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    className={`w-full bg-gray-50 dark:bg-stone-900 border rounded-[20px] pl-11 pr-4 py-3.5 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#1a1a1e] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
-                      touched.password && errors.password 
-                        ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
+                    className={`w-full bg-gray-50 dark:bg-stone-900 border rounded-[20px] pl-11 pr-11 py-3.5 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#1a1a1e] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
+                      touched.password && errors.password
+                        ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10'
                         : 'border-gray-200 dark:border-stone-800 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
                     }`}
                   />
                   <div className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${
-                    touched.password && errors.password 
-                      ? 'text-red-500' 
+                    touched.password && errors.password
+                      ? 'text-red-500'
                       : 'text-gray-400 group-focus-within:text-brand-orange'
                   }`}>
                     <Lock className="w-5 h-5" />
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
                 </div>
                 {touched.password && errors.password && (
                   <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium transition-all duration-100">

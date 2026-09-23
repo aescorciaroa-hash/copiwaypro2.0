@@ -7,7 +7,7 @@ import {
   Sun, Moon, Utensils, LayoutGrid, RotateCcw, 
   ShoppingCart, Gift, AlertCircle, CheckCircle2, Trash2, X,
   ChefHat, Minus, Plus, MessageCircle, Star, Smartphone, Layers, CreditCard, Banknote,
-  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell
+  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff
 } from 'lucide-react';
 
 import { formatCOP } from '../lib/format';
@@ -23,6 +23,7 @@ import CheckoutSection from './client/CheckoutSection';
 import ActiveOrdersSection from './client/ActiveOrdersSection';
 import HistorySection from './client/HistorySection';
 import ProfileSection from './client/ProfileSection';
+import PaymentGatewayModal, { GatewayStep } from './client/PaymentGatewayModal';
 
 export interface SyncedIngredient {
   id: string;
@@ -98,41 +99,69 @@ export default function ClientDashboard() {
     onConfirm: () => {},
   });
 
-  // Perfil del Usuario
+  // Perfil del Usuario: placeholder vacío hasta que llegue el registro real del
+  // cliente vía /api/sync (ver useEffect de abajo que lo sobrescribe).
   const [userProfile, setUserProfile] = useState<UserProfileState>({
-    name: 'Andrés Escorcia',
-    email: 'andres@example.com',
-    phone: '3001234567',
-    birthday: '1995-10-15',
-    points: 150,
-    address: 'Calle 10 # 5-20, Centro',
-    notifications: [
-      {
-        id: 'n1',
-        title: '¡Feliz Cumpleaños! 🎂',
-        message: 'Como regalo de cumpleaños, tienes un 15% de descuento automático en tu carrito válido por hoy.',
-        date: new Date().toISOString(),
-        read: false,
-        type: 'promo'
-      },
-      {
-        id: 'n2',
-        title: 'Puntos Acumulados 🌟',
-        message: 'Has ganado 150 puntos por tu última compra. ¡Sigue así!',
-        date: new Date(Date.now() - 86400000).toISOString(),
-        read: false,
-        type: 'system'
-      }
-    ]
+    name: '',
+    email: '',
+    phone: '',
+    birthday: '',
+    points: 0,
+    address: '',
+    notifications: []
   });
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const resetPasswordModalFields = () => {
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmNewPasswordInput('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmNewPassword(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentUserId || currentUserId === 'guest') return;
+    if (!currentPasswordInput || !newPasswordInput) {
+      showToast('danger', 'Completa tu contraseña actual y la nueva.', 'Faltan Datos');
+      return;
+    }
+    if (newPasswordInput.length < 8) {
+      showToast('danger', 'La nueva contraseña debe tener al menos 8 caracteres.', 'Contraseña Muy Corta');
+      return;
+    }
+    if (newPasswordInput !== confirmNewPasswordInput) {
+      showToast('danger', 'La confirmación no coincide con la nueva contraseña.', 'No Coinciden');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      await changeClientPassword(currentUserId, currentPasswordInput, newPasswordInput);
+      showToast('success', 'Tu contraseña se actualizó correctamente.', 'Contraseña Actualizada');
+      resetPasswordModalFields();
+      setShowPasswordModal(false);
+    } catch (err) {
+      const mensaje = err instanceof ApiError ? err.message : 'No se pudo cambiar la contraseña.';
+      showToast('danger', mensaje, 'No se Cambió la Contraseña');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [catalogCategory, setCatalogCategory] = useState('Todas');
 
   // Datos Simulados & Sincronización en Tiempo Real
-  const { products, ingredients, inventory, orders, addOrder, updateOrderStatus, storeConfig, updateStoreConfig, updateOrder, clients, updateClient } = useStore();
+  const { products, ingredients, inventory, orders, addOrder, updateOrderStatus, storeConfig, updateStoreConfig, updateOrder, clients, updateClient, changeClientPassword } = useStore();
   const catalog = products.filter(p => p.active);
   
   const orderHistory = orders.filter(o => o.status === 'Entregado' || o.status === 'entregado');
@@ -284,33 +313,79 @@ export default function ClientDashboard() {
           points: client.points || prev.points,
           notifications: client.notifications || prev.notifications
         }));
-        if (client.cart) setCart(client.cart as CartItem[]);
+        // [] es "truthy" en JS: sin este length > 0, un cliente nuevo (sin
+        // carrito guardado en BD) siempre pisaba el carrito de invitado con
+        // uno vacio, perdiendo los productos que ya habia agregado al
+        // registrarse o iniciar sesion.
+        if (client.cart && (client.cart as CartItem[]).length > 0) {
+          setCart(client.cart as CartItem[]);
+        }
       }
     }
   }, [currentUserId, clients.length]);
 
+  // Solo el carrito se auto-guarda en cada cambio (HU-15). Los datos del
+  // perfil (nombre/telefono/direccion/fecha) YA NO se mandan aqui en cada
+  // tecla: "Mi Perfil" tiene su propio botón "Guardar Cambios"/"Descartar",
+  // y antes esos botones eran decorativos (solo mostraban un toast, nunca
+  // llamaban a la API) mientras este efecto guardaba en silencio de todas
+  // formas -- confuso, y sin manejo de errores si la llamada fallaba.
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     if (currentUserId && currentUserId !== 'guest') {
-       updateClient(currentUserId, {
-         name: userProfile.name,
-         email: userProfile.email,
-         phone: userProfile.phone,
-         birthday: userProfile.birthday,
-         address: userProfile.address,
-         cart: cart
+       updateClient(currentUserId, { cart }).catch(() => {
+         // Fallo de red guardando el carrito: no interrumpe la compra: al
+         // volver a cambiar el carrito se reintenta guardar solo.
        });
     } else {
        localStorage.setItem('olio_cart', JSON.stringify(cart));
     }
-  }, [cart, userProfile.name, userProfile.email, userProfile.phone, userProfile.birthday, userProfile.address]);
+  }, [cart]);
+
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const handleSaveProfile = async () => {
+    if (!currentUserId || currentUserId === 'guest') return;
+    setIsSavingProfile(true);
+    try {
+      await updateClient(currentUserId, {
+        name: userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone,
+        birthday: userProfile.birthday,
+        address: userProfile.address,
+      });
+      showToast('success', 'Tus datos personales se guardaron correctamente.', 'Perfil Actualizado');
+    } catch (err) {
+      const mensaje = err instanceof ApiError ? err.message : 'No se pudo guardar tu perfil.';
+      showToast('danger', mensaje, 'No se Guardó el Perfil');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleDiscardProfile = () => {
+    const client = clients.find(c => c.id === currentUserId);
+    if (client) {
+      setUserProfile(prev => ({
+        ...prev,
+        name: client.name || '',
+        email: client.email || '',
+        phone: client.phone || '',
+        address: client.address || '',
+        birthday: client.birthday || '',
+      }));
+    }
+    showToast('info', 'No se guardó ninguna modificación.', 'Cambios Descartados');
+  };
 
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle'|'processing'|'success'|'error'>('idle');
   const [simulationStep, setSimulationStep] = useState<string>('');
+  const [gatewayStep, setGatewayStep] = useState<GatewayStep>('idle');
 
   const showToast = (type: ToastData['type'] = 'cart', message: string, title?: string) => {
     setToastMessage({ type, message, title });
@@ -430,15 +505,22 @@ export default function ClientDashboard() {
 
   const processPayment = () => {
     setPaymentStatus('processing');
-    
+
     if (paymentMethod === 'online') {
-      setSimulationStep('Conectando con ' + (digitalBank === 'nequi' ? 'Nequi' : digitalBank === 'daviplata' ? 'Daviplata' : 'Bancolombia') + '...');
+      const bankName = digitalBank === 'nequi' ? 'Nequi' : digitalBank === 'daviplata' ? 'Daviplata' : 'Bancolombia';
+      setGatewayStep('connecting');
+      setSimulationStep('Conectando con ' + bankName + '...');
       setTimeout(() => {
+        setGatewayStep('waiting');
         setSimulationStep('Esperando aprobación en tu celular...');
         setTimeout(() => {
-          completePayment();
-        }, 3000);
-      }, 2000);
+          setGatewayStep('verifying');
+          setSimulationStep('Verificando transacción...');
+          setTimeout(() => {
+            completePayment();
+          }, 1200);
+        }, 3200);
+      }, 1600);
     } else {
       setTimeout(() => {
         completePayment();
@@ -448,6 +530,7 @@ export default function ClientDashboard() {
 
   const completePayment = () => {
     if (Math.random() > 0.2 || paymentMethod === 'cash') {
+      if (paymentMethod === 'online') setGatewayStep('approved');
       setSimulationStep(paymentMethod === 'online' ? '¡Pago aprobado exitosamente!' : '¡Pedido confirmado!');
       setTimeout(async () => {
         // HU-04: Acumulación de puntos
@@ -480,6 +563,7 @@ export default function ClientDashboard() {
           const message = err instanceof ApiError ? err.message : 'No se pudo procesar tu pedido. Intenta de nuevo.';
           setPaymentStatus('error');
           setSimulationStep(message);
+          setGatewayStep('idle');
           showToast('danger', message, 'Pedido no procesado');
           setTimeout(() => setPaymentStatus('idle'), 2500);
           return;
@@ -495,17 +579,20 @@ export default function ClientDashboard() {
           setIsCheckingOut(false);
           setPaymentStatus('idle');
           setSimulationStep('');
+          setGatewayStep('idle');
           setActiveTab('activeOrders');
         }, 2000);
       }, 1000);
     } else {
       // Pago rechazado, se mantiene editable
+      setGatewayStep('declined');
       setSimulationStep('El pago fue rechazado. Intenta de nuevo.');
       setPaymentStatus('error');
       showToast('danger', 'El pago fue rechazado por el banco. Intenta de nuevo.', 'Pago no procesado');
       setTimeout(() => {
         setPaymentStatus('idle');
         setSimulationStep('');
+        setGatewayStep('idle');
       }, 3000);
     }
   };
@@ -705,7 +792,14 @@ export default function ClientDashboard() {
       
       {/* Modal de Detalles del Pedido */}
       <AnimatePresence>
-        {selectedOrderInfo && (
+        {(() => {
+          // selectedOrderInfo es una copia tomada al momento del clic; el
+          // polling de FirebaseSync sigue refrescando `orders` cada 2.5s (p.ej.
+          // cuando un domiciliario acepta el pedido), pero esa copia congelada
+          // nunca se enteraba, así que el modal mostraba "sin asignar" aunque ya
+          // hubiera repartidor. Se resuelve siempre contra el pedido vivo.
+          const liveOrder = selectedOrderInfo ? orders.find(o => o.id === selectedOrderInfo.id) || selectedOrderInfo : null;
+          return liveOrder && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
@@ -724,19 +818,19 @@ export default function ClientDashboard() {
               <div className="space-y-6">
                 <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
                   <p className="text-sm text-gray-500 font-medium mb-1">ID del Pedido</p>
-                  <p className="font-bold text-gray-900 dark:text-white text-lg">{selectedOrderInfo.id}</p>
+                  <p className="font-bold text-gray-900 dark:text-white text-lg">{liveOrder.id}</p>
                 </div>
-                
+
                 <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
                   <p className="text-sm text-gray-500 font-medium mb-2">Información del Repartidor</p>
-                  {selectedOrderInfo.status === 'En Camino' || selectedOrderInfo.status === 'Entregado' || selectedOrderInfo.status === 'entregado' ? (
+                  {liveOrder.status === 'En Camino' || liveOrder.status === 'Entregado' || liveOrder.status === 'entregado' ? (
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 bg-gray-200 dark:bg-stone-800 rounded-full flex items-center justify-center">
                         <Star className="w-6 h-6 text-gray-400" />
                       </div>
                       <div>
-                        <p className="font-bold text-gray-900 dark:text-white">{selectedOrderInfo.driverName || 'Repartidor Asignado'}</p>
-                        <p className="text-sm text-gray-500">{selectedOrderInfo.status}</p>
+                        <p className="font-bold text-gray-900 dark:text-white">{liveOrder.driverName || 'Repartidor Asignado'}</p>
+                        <p className="text-sm text-gray-500">{liveOrder.status}</p>
                       </div>
                     </div>
                   ) : (
@@ -749,15 +843,15 @@ export default function ClientDashboard() {
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm font-medium">
                       <span className="text-gray-600 dark:text-stone-400">Método de Pago</span>
-                      <span className="text-gray-900 dark:text-white">{selectedOrderInfo.paymentMethod === 'cash' ? 'Efectivo' : selectedOrderInfo.paymentMethod === 'nequi' ? 'Nequi' : selectedOrderInfo.paymentMethod === 'bancolombia' ? 'Bancolombia' : selectedOrderInfo.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
+                      <span className="text-gray-900 dark:text-white">{liveOrder.paymentMethod === 'cash' ? 'Efectivo' : liveOrder.paymentMethod === 'nequi' ? 'Nequi' : liveOrder.paymentMethod === 'bancolombia' ? 'Bancolombia' : liveOrder.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
                     </div>
                     <div className="flex justify-between text-sm font-medium">
                       <span className="text-gray-600 dark:text-stone-400">Estado de Pago</span>
-                      <span className="text-green-600 uppercase tracking-wider">{selectedOrderInfo.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
+                      <span className="text-green-600 uppercase tracking-wider">{liveOrder.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
                     </div>
                     <div className="border-t border-gray-200 dark:border-stone-800 my-2 pt-2 flex justify-between font-bold text-lg">
                       <span className="text-gray-900 dark:text-white">Total</span>
-                      <span className="text-brand-orange">{formatCOP(selectedOrderInfo.total)}</span>
+                      <span className="text-brand-orange">{formatCOP(liveOrder.total)}</span>
                     </div>
                   </div>
                 </div>
@@ -765,7 +859,7 @@ export default function ClientDashboard() {
                 <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
                   <p className="text-sm text-gray-500 font-medium mb-3">Productos</p>
                   <div className="space-y-3">
-                    {selectedOrderInfo.items.map((item, idx: number) => (
+                    {liveOrder.items.map((item, idx: number) => (
                       <div key={item.id || idx} className="flex justify-between text-sm font-medium">
                         <span className="text-gray-900 dark:text-white">{item.quantity}x {item.name}</span>
                         <span className="text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
@@ -776,7 +870,8 @@ export default function ClientDashboard() {
               </div>
             </motion.div>
           </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       <div className="min-h-screen bg-gray-50/50 dark:bg-stone-950 text-gray-900 dark:text-gray-100 font-sans flex transition-colors duration-300">
@@ -1044,14 +1139,25 @@ export default function ClientDashboard() {
                 userProfile={userProfile}
                 setUserProfile={setUserProfile}
                 setShowCalendar={setShowCalendar}
-                showToast={showToast}
                 setShowPasswordModal={setShowPasswordModal}
                 handleLogout={handleLogout}
+                onSaveProfile={handleSaveProfile}
+                onDiscardProfile={handleDiscardProfile}
+                isSavingProfile={isSavingProfile}
               />
             )}
           </div>
         </div>
       </main>
+
+      {paymentMethod === 'online' && (
+        <PaymentGatewayModal
+          step={gatewayStep}
+          bank={digitalBank}
+          phone={paymentPhone}
+          amount={cartTotal}
+        />
+      )}
 
       {/* Bottom Navigation for Mobile */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/80 dark:bg-[#0c0a09]/80 backdrop-blur-lg border-t border-gray-200 dark:border-white/5 flex items-center justify-around z-[100] px-4 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pb-safe">
@@ -1175,20 +1281,42 @@ export default function ClientDashboard() {
               <div className="p-6 space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Contraseña Actual</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showCurrentPassword ? 'text' : 'password'} value={currentPasswordInput} onChange={e => setCurrentPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Nueva Contraseña</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showNewPassword ? 'text' : 'password'} value={newPasswordInput} onChange={e => setNewPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-stone-400 mt-1.5">Mínimo 8 caracteres.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Confirmar Nueva Contraseña</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showConfirmNewPassword ? 'text' : 'password'} value={confirmNewPasswordInput} onChange={e => setConfirmNewPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="p-6 border-t border-gray-100 dark:border-stone-800 flex gap-4">
-                <button onClick={() => setShowPasswordModal(false)} className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors min-w-0">Cancelar</button>
-                <button onClick={() => { setShowPasswordModal(false); showToast('info', 'Contraseña actualizada exitosamente'); }} className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors shadow-md min-w-0">Actualizar</button>
+                <button onClick={() => { setShowPasswordModal(false); resetPasswordModalFields(); }} className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors min-w-0 cursor-pointer">Cancelar</button>
+                <button
+                  onClick={handleChangePassword}
+                  disabled={isChangingPassword || !currentPasswordInput || !newPasswordInput || !confirmNewPasswordInput}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors shadow-md min-w-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isChangingPassword ? 'Actualizando...' : 'Actualizar'}
+                </button>
               </div>
             </motion.div>
           </div>

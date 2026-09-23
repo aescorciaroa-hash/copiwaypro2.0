@@ -6,13 +6,16 @@ interface ProfileSectionProps {
   userProfile: UserProfileState;
   setUserProfile: (profile: UserProfileState) => void;
   setShowCalendar: (show: boolean) => void;
-  showToast: (type: string, message: string, title?: string) => void;
   setShowPasswordModal: (show: boolean) => void;
   handleLogout: () => void;
+  onSaveProfile: () => void;
+  onDiscardProfile: () => void;
+  isSavingProfile: boolean;
 }
 
 export default function ProfileSection({
-  userProfile, setUserProfile, setShowCalendar, showToast, setShowPasswordModal, handleLogout,
+  userProfile, setUserProfile, setShowCalendar, setShowPasswordModal, handleLogout,
+  onSaveProfile, onDiscardProfile, isSavingProfile,
 }: ProfileSectionProps) {
   return (
     <div className="space-y-8 ">
@@ -85,16 +88,18 @@ export default function ProfileSection({
         </div>
         <div className="flex justify-end gap-3 pt-6 border-t border-gray-100 dark:border-stone-800">
           <button
-            onClick={() => showToast('info', 'No se guardó ninguna modificación.', 'Cambios Descartados')}
-            className="px-6 py-2.5 rounded-md font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700 transition-colors text-[14px]"
+            onClick={onDiscardProfile}
+            disabled={isSavingProfile}
+            className="px-6 py-2.5 rounded-md font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700 transition-colors text-[14px] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Descartar
           </button>
           <button
-            onClick={() => showToast('success', 'Tus datos personales se guardaron correctamente.', 'Perfil Actualizado')}
-            className="px-6 py-2.5 rounded-md font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors text-[14px]"
+            onClick={onSaveProfile}
+            disabled={isSavingProfile}
+            className="px-6 py-2.5 rounded-md font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors text-[14px] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Guardar Cambios
+            {isSavingProfile ? 'Guardando...' : 'Guardar Cambios'}
           </button>
         </div>
       </div>

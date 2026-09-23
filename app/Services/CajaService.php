@@ -71,7 +71,7 @@ class CajaService {
             'insumosConsumidos' => $insumosConsumidos,
             'orders' => array_map(function ($o) {
                 return [
-                    'id' => '#ORD-' . $o['numero_pedido'],
+                    'id' => '#ORD-' . $o['id_pedido'],
                     'client' => $o['cliente_nombre'] ?? null,
                     'total' => (float) $o['total'],
                     'paymentMethod' => $o['metodo_pago'] === 'efectivo' ? 'cash' : 'online',
@@ -129,13 +129,13 @@ class CajaService {
             $totalDigital = $totales['totalDigital'];
             $efectivoPorDomiciliario = $totales['efectivoPorDomiciliario'];
 
-            $idReporte = generarUuid();
             $stmtIns = $this->consulta(
-                'INSERT INTO REPORTE_CAJA (id_reporte, id_admin, fecha, total_ventas, total_efectivo, total_digital)
-                 VALUES (?, ?, ?, ?, ?, ?)',
-                [$idReporte, $idAdmin, $hoy, $totalVentas, $totalEfectivo, $totalDigital]
+                'INSERT INTO REPORTE_CAJA (id_admin, fecha, total_ventas, total_efectivo, total_digital)
+                 VALUES (?, ?, ?, ?, ?)',
+                [$idAdmin, $hoy, $totalVentas, $totalEfectivo, $totalDigital]
             );
             $stmtIns->close();
+            $idReporte = $this->conn->insert_id;
 
             // Archiva los pedidos del turno (no se borran).
             if (!empty($pedidos)) {
@@ -153,10 +153,10 @@ class CajaService {
                 }
                 $stmtLiq = $this->consulta(
                     'INSERT INTO LIQUIDACION_DOMICILIARIO
-                        (id_liquidacion, id_reporte, id_domiciliario, base_asignada, efectivo_recolectado, efectivo_liquidado)
-                     VALUES (?, ?, ?, ?, ?, ?)',
+                        (id_reporte, id_domiciliario, base_asignada, efectivo_recolectado, efectivo_liquidado)
+                     VALUES (?, ?, ?, ?, ?)',
                     [
-                        '', $idReporte, $domiciliario['id_domiciliario'], $domiciliario['base_efectivo_asignada'],
+                        $idReporte, $domiciliario['id_domiciliario'], $domiciliario['base_efectivo_asignada'],
                         $recolectado, (float) $domiciliario['base_efectivo_asignada'] + $recolectado,
                     ]
                 );
@@ -168,9 +168,9 @@ class CajaService {
             $idsPedidos = array_column($pedidos, 'id_pedido');
             foreach ($this->cajaModelo->consumoTeorico($idsPedidos) as $idIngrediente => $datos) {
                 $stmtAud = $this->consulta(
-                    'INSERT INTO DETALLE_AUDITORIA (id_auditoria, id_reporte, id_ingrediente, nombre, stock_teorico, stock_real)
-                     VALUES (?, ?, ?, ?, ?, ?)',
-                    ['', $idReporte, $idIngrediente, $datos['nombre'], $datos['consumido'], $this->cajaModelo->stockActual($idIngrediente)]
+                    'INSERT INTO DETALLE_AUDITORIA (id_reporte, id_ingrediente, nombre, stock_teorico, stock_real)
+                     VALUES (?, ?, ?, ?, ?)',
+                    [$idReporte, $idIngrediente, $datos['nombre'], $datos['consumido'], $this->cajaModelo->stockActual($idIngrediente)]
                 );
                 $stmtAud->close();
             }

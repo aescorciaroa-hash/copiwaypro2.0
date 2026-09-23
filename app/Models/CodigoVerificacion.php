@@ -30,9 +30,9 @@ class CodigoVerificacion {
 
     public function crearParaCliente($idCliente, $codigo) {
         $stmt = $this->consulta(
-            "INSERT INTO CODIGO_VERIFICACION (id_codigo, id_cliente, codigo_hash, canal_envio, fecha_expiracion)
-             VALUES (?, ?, ?, 'email', DATE_ADD(NOW(), INTERVAL 15 MINUTE))",
-            ['', $idCliente, password_hash($codigo, PASSWORD_DEFAULT)]
+            "INSERT INTO CODIGO_VERIFICACION (id_cliente, codigo_hash, canal_envio, fecha_expiracion)
+             VALUES (?, ?, 'email', DATE_ADD(NOW(), INTERVAL 15 MINUTE))",
+            [$idCliente, password_hash($codigo, PASSWORD_DEFAULT)]
         );
         $stmt->close();
     }

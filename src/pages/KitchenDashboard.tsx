@@ -3,7 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ArrowLeft,  
-  ChefHat, LogOut, Sun, Moon, Printer, CheckCircle2, AlertCircle, RefreshCw, Utensils, Volume2, VolumeX, Bell, Menu, X
+  ChefHat, LogOut, Sun, Moon, Printer, CheckCircle2, AlertCircle, RefreshCw, Utensils, Volume2, VolumeX, Bell, Menu, X, Eye, EyeOff
  } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore, Order } from '../store/almacenAplicacion';
@@ -35,7 +35,8 @@ export default function KitchenDashboard() {
   // Login State
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   
   // Inventory State
@@ -80,7 +81,7 @@ export default function KitchenDashboard() {
     try {
       const { user } = await api.post<{ user: { id: string; role: string } }>('/auth/login', {
         email: username,
-        password,
+        pin,
       });
       if (user.role !== 'kitchen') {
         await api.post('/auth/logout').catch(() => {});
@@ -89,7 +90,7 @@ export default function KitchenDashboard() {
       }
       setIsLoggedIn(true);
     } catch (err) {
-      setLoginError(err instanceof ApiError ? err.message : 'Usuario o contraseña incorrectos.');
+      setLoginError(err instanceof ApiError ? err.message : 'Usuario o PIN incorrectos.');
     }
   };
 
@@ -125,7 +126,7 @@ export default function KitchenDashboard() {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         setIsLoggedIn(false);
         setUsername('');
-        setPassword('');
+        setPin('');
         irA('/login');
       }
     });
@@ -207,14 +208,26 @@ export default function KitchenDashboard() {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2 ml-1">Contraseña</label>
-              <input 
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full h-16 px-6 rounded-2xl bg-gray-50 dark:bg-stone-900 border-2 border-gray-100 dark:border-stone-800 focus:border-brand-orange dark:focus:border-brand-orange outline-none transition-colors text-lg text-gray-900 dark:text-white font-medium"
-                placeholder="••••••••"
-              />
+              <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2 ml-1">PIN de Acceso</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pin}
+                  onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full h-16 px-6 pr-14 rounded-2xl bg-gray-50 dark:bg-stone-900 border-2 border-gray-100 dark:border-stone-800 focus:border-brand-orange dark:focus:border-brand-orange outline-none transition-colors text-lg text-gray-900 dark:text-white font-medium tracking-[0.5em]"
+                  placeholder="••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                  className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-6 h-6" /> : <Eye className="w-6 h-6" />}
+                </button>
+              </div>
             </div>
             
             {loginError && (

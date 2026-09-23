@@ -30,11 +30,19 @@ class Personal {
     }
 
     public function listar() {
-        $stmtCocina = $this->consulta('SELECT * FROM AYUDANTE_COCINA ORDER BY creado_en DESC');
+        $stmtCocina = $this->consulta(
+            'SELECT ac.*, a.nombre AS creado_por_nombre FROM AYUDANTE_COCINA ac
+             LEFT JOIN ADMINISTRADOR a ON a.id_admin = ac.creado_por
+             ORDER BY ac.creado_en DESC'
+        );
         $cocina = $stmtCocina->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmtCocina->close();
 
-        $stmtDomicilio = $this->consulta('SELECT * FROM DOMICILIARIO ORDER BY creado_en DESC');
+        $stmtDomicilio = $this->consulta(
+            'SELECT d.*, a.nombre AS creado_por_nombre FROM DOMICILIARIO d
+             LEFT JOIN ADMINISTRADOR a ON a.id_admin = d.creado_por
+             ORDER BY d.creado_en DESC'
+        );
         $domicilio = $stmtDomicilio->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmtDomicilio->close();
 
@@ -64,38 +72,32 @@ class Personal {
     /** Crea un miembro de staff en AYUDANTE_COCINA o DOMICILIARIO segun $datos['role']. */
     public function crear($datos, $idAdmin) {
         $hash = password_hash($datos['password'], PASSWORD_DEFAULT);
+        $hashPin = !empty($datos['pin']) ? password_hash($datos['pin'], PASSWORD_DEFAULT) : null;
 
         if ($datos['role'] === 'Ayudante de cocina') {
             $stmt = $this->consulta(
-                'INSERT INTO AYUDANTE_COCINA (id_ayudante, nombre, correo, telefono, contrasena, creado_por)
+                'INSERT INTO AYUDANTE_COCINA (nombre, correo, telefono, contrasena, pin, creado_por)
                  VALUES (?, ?, ?, ?, ?, ?)',
-                ['', $datos['name'], $datos['email'], $datos['phone'] ?? '', $hash, $idAdmin]
+                [$datos['name'], $datos['email'], $datos['phone'] ?? '', $hash, $hashPin, $idAdmin]
             );
             $stmt->close();
-
-            $stmtId = $this->consulta('SELECT id_ayudante FROM AYUDANTE_COCINA WHERE correo = ? LIMIT 1', [$datos['email']]);
-            $id = $stmtId->get_result()->fetch_assoc()['id_ayudante'];
-            $stmtId->close();
-            return $id;
+            return $this->conn->insert_id;
         }
 
         if ($datos['role'] === 'Domiciliario') {
             $stmt = $this->consulta(
                 'INSERT INTO DOMICILIARIO
-                    (id_domiciliario, nombre, correo, telefono, contrasena, tipo_vehiculo, placa,
+                    (nombre, correo, telefono, contrasena, pin, tipo_vehiculo, modelo_vehiculo, placa,
                      base_efectivo_asignada, creado_por)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
-                    '', $datos['name'], $datos['email'], $datos['phone'] ?? '', $hash,
-                    $datos['vehicle'] ?? 'moto', $datos['plate'] ?? null, $datos['baseCash'] ?? 0, $idAdmin,
+                    $datos['name'], $datos['email'], $datos['phone'] ?? '', $hash, $hashPin,
+                    $datos['vehicle'] ?? 'moto', $datos['vehicleModel'] ?? null, $datos['plate'] ?? null,
+                    $datos['baseCash'] ?? 0, $idAdmin,
                 ]
             );
             $stmt->close();
-
-            $stmtId = $this->consulta('SELECT id_domiciliario FROM DOMICILIARIO WHERE correo = ? LIMIT 1', [$datos['email']]);
-            $id = $stmtId->get_result()->fetch_assoc()['id_domiciliario'];
-            $stmtId->close();
-            return $id;
+            return $this->conn->insert_id;
         }
 
         throw new Exception("Rol de staff inválido: {$datos['role']}");
@@ -103,10 +105,43 @@ class Personal {
 
     /**
      * Actualiza al miembro de staff con este id, buscando primero en
-     * AYUDANTE_COCINA y luego en DOMICILIARIO. Devuelve la tabla usada, o null
-     * si no se encontro el id en ninguna.
+     * AYUDANTE_COCINA y luego en DOMICILIARIO -- Y ESO ERA UN BUG: ahora que
+     * los ids son autoincrementales por tabla (ya no UUID unico global), el
+     * id_ayudante=1 y el id_domiciliario=1 son DOS personas distintas con el
+     * MISMO numero. Buscar "primero en cocina" significaba que editar a
+     * cualquier domiciliario con un id que tambien existiera como ayudante
+     * actualizaba al ayudante equivocado en silencio (el domiciliario real
+     * nunca cambiaba). Por eso ahora, si $datos trae 'role' (el frontend
+     * siempre lo manda), se va directo a la tabla correcta; el escaneo de
+     * ambas tablas queda solo como respaldo si por algun motivo no llega.
+     * Devuelve la tabla usada, o null si no se encontro el id en ninguna.
      */
     public function actualizar($id, $datos) {
+        $rol = $datos['role'] ?? null;
+
+        if ($rol === 'Ayudante de cocina') {
+            $stmt = $this->consulta('SELECT id_ayudante FROM AYUDANTE_COCINA WHERE id_ayudante = ?', [$id]);
+            $existe = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$existe) {
+                return null;
+            }
+            $this->actualizarCocina($id, $datos);
+            return 'kitchen';
+        }
+
+        if ($rol === 'Domiciliario') {
+            $stmt = $this->consulta('SELECT id_domiciliario FROM DOMICILIARIO WHERE id_domiciliario = ?', [$id]);
+            $existe = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+            if (!$existe) {
+                return null;
+            }
+            $this->actualizarDomicilio($id, $datos);
+            return 'delivery';
+        }
+
+        // Respaldo (sin 'role' en el payload): comportamiento anterior.
         $stmt = $this->consulta('SELECT id_ayudante FROM AYUDANTE_COCINA WHERE id_ayudante = ?', [$id]);
         $existeCocina = $stmt->get_result()->fetch_assoc();
         $stmt->close();
@@ -144,6 +179,10 @@ class Personal {
             $sets[] = 'contrasena = ?';
             $valores[] = password_hash($datos['password'], PASSWORD_DEFAULT);
         }
+        if (!empty($datos['pin'])) {
+            $sets[] = 'pin = ?';
+            $valores[] = password_hash($datos['pin'], PASSWORD_DEFAULT);
+        }
         if (empty($sets)) {
             return;
         }
@@ -155,7 +194,8 @@ class Personal {
     private function actualizarDomicilio($id, $datos) {
         $mapa = [
             'name' => 'nombre', 'email' => 'correo', 'phone' => 'telefono',
-            'plate' => 'placa', 'vehicle' => 'tipo_vehiculo', 'baseCash' => 'base_efectivo_asignada',
+            'plate' => 'placa', 'vehicle' => 'tipo_vehiculo', 'vehicleModel' => 'modelo_vehiculo',
+            'baseCash' => 'base_efectivo_asignada',
         ];
         $sets = [];
         $valores = [];
@@ -173,6 +213,10 @@ class Personal {
             $sets[] = 'contrasena = ?';
             $valores[] = password_hash($datos['password'], PASSWORD_DEFAULT);
         }
+        if (!empty($datos['pin'])) {
+            $sets[] = 'pin = ?';
+            $valores[] = password_hash($datos['pin'], PASSWORD_DEFAULT);
+        }
         if (empty($sets)) {
             return;
         }
@@ -181,8 +225,25 @@ class Personal {
         $stmt->close();
     }
 
-    /** Soft delete (activo = 0) — nunca DELETE real. Devuelve la tabla usada o null. */
-    public function eliminarSuave($id) {
+    /**
+     * Soft delete (activo = 0) — nunca DELETE real. $rol (si se pasa) evita la
+     * misma ambiguedad de id repetido entre tablas que actualizar(); sin el,
+     * cae al escaneo de ambas tablas como antes. Devuelve la tabla usada o null.
+     */
+    public function eliminarSuave($id, $rol = null) {
+        if ($rol === 'Ayudante de cocina') {
+            $stmt = $this->consulta('UPDATE AYUDANTE_COCINA SET activo = 0 WHERE id_ayudante = ?', [$id]);
+            $afectadas = $stmt->affected_rows;
+            $stmt->close();
+            return $afectadas > 0 ? 'kitchen' : null;
+        }
+        if ($rol === 'Domiciliario') {
+            $stmt = $this->consulta('UPDATE DOMICILIARIO SET activo = 0 WHERE id_domiciliario = ?', [$id]);
+            $afectadas = $stmt->affected_rows;
+            $stmt->close();
+            return $afectadas > 0 ? 'delivery' : null;
+        }
+
         $stmt = $this->consulta('UPDATE AYUDANTE_COCINA SET activo = 0 WHERE id_ayudante = ?', [$id]);
         $afectadas = $stmt->affected_rows;
         $stmt->close();

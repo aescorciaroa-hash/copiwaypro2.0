@@ -4,12 +4,12 @@ import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ArrowLeft, Map as MapIcon,  
   MapPin, LogOut, Navigation, Phone, CheckCircle, CheckCircle2, MessageCircle, AlertCircle, Utensils, Plus, Minus, X, Target
-, Sun, Moon } from 'lucide-react';
+, Sun, Moon, Eye, EyeOff } from 'lucide-react';
 import { useStore, Order } from '../store/almacenAplicacion';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { formatCOP } from '../lib/format';
+import { formatCOP, vehicleWithModel } from '../lib/format';
 import { api, ApiError, irA } from '../servicios/api';
 
 const RoutePolyline = ({ origin, destination, outerColor, innerColor, onRouteLoaded }: { origin: [number, number], destination: [number, number], outerColor: string, innerColor: string, onRouteLoaded?: (coords: [number, number][]) => void }) => {
@@ -84,7 +84,8 @@ export default function DeliveryDashboard() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [toastData, setToastData] = useState<ToastData | null>(null);
 
@@ -122,7 +123,7 @@ export default function DeliveryDashboard() {
             setDestCoords(coords as [number, number]);
             setMapCenter(coords as [number, number]);
             if (loggedInUserId) {
-              updateStaff(loggedInUserId, { currentOrderId: activeRoute.id, destCoords: coords as [number, number] });
+              updateStaff(loggedInUserId, { role: 'Domiciliario', currentOrderId: activeRoute.id, destCoords: coords as [number, number] });
             }
           }
         } catch(e) {}
@@ -141,7 +142,7 @@ export default function DeliveryDashboard() {
     try {
       const { user } = await api.post<{ user: { id: string; role: string } }>('/auth/login', {
         email: username,
-        password,
+        pin: loginPin,
       });
       if (user.role !== 'delivery') {
         await api.post('/auth/logout').catch(() => {});
@@ -151,7 +152,7 @@ export default function DeliveryDashboard() {
       setLoggedInUserId(user.id);
       setIsLoggedIn(true);
     } catch (err) {
-      setLoginError(err instanceof ApiError ? err.message : 'Usuario o contraseña incorrectos.');
+      setLoginError(err instanceof ApiError ? err.message : 'Usuario o PIN incorrectos.');
     }
   };
 
@@ -170,7 +171,7 @@ export default function DeliveryDashboard() {
             isUsingMock = false;
             const { latitude, longitude } = position.coords;
             setMapCenter([latitude, longitude]);
-            updateStaff(loggedInUserId, { location: [latitude, longitude] });
+            updateStaff(loggedInUserId, { role: 'Domiciliario', location: [latitude, longitude] });
           },
           (error) => {
             isUsingMock = true;
@@ -196,7 +197,7 @@ export default function DeliveryDashboard() {
              currentMockLoc = [2.9274, -75.2817];
            }
            setMapCenter(currentMockLoc);
-           updateStaff(loggedInUserId, { location: currentMockLoc });
+           updateStaff(loggedInUserId, { role: 'Domiciliario', location: currentMockLoc });
         }
       }, 2000);
     }
@@ -238,7 +239,7 @@ export default function DeliveryDashboard() {
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
         setIsLoggedIn(false);
         setUsername('');
-        setPassword('');
+        setLoginPin('');
         irA('/login');
       }
     });
@@ -253,54 +254,51 @@ export default function DeliveryDashboard() {
       setAcceptedOrders([...acceptedOrders, orderId]);
       showToast('info', `Tomaste el pedido #${orderId}. Prepárate para iniciar la ruta.`, 'Pedido Asignado');
     }
-    const currentDriver = staff.find(s => s.id === loggedInUserId) || staff.find(s => s.role === 'Domiciliario') || {
-      id: loggedInUserId || 'dom-1',
-      name: username ? (username.charAt(0).toUpperCase() + username.slice(1)) : 'Carlos Mendoza (Domiciliario)',
-      phone: '3114567890',
-      plate: 'CW-789',
-      vehicle: 'Moto Honda CB125'
-    };
+    const currentDriver = staff.find(s => s.id === loggedInUserId && s.role === 'Domiciliario');
 
     updateOrder(orderId, {
-      driverName: currentDriver.name,
-      driverPhone: currentDriver.phone,
-      driverPlate: currentDriver.plate || 'CW-789',
-      driverVehicle: currentDriver.vehicle || 'Moto'
+      driverName: currentDriver?.name || (username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Domiciliario'),
+      driverPhone: currentDriver?.phone || '',
+      driverPlate: currentDriver?.plate || '',
+      driverVehicle: vehicleWithModel(currentDriver?.vehicle, currentDriver?.vehicleModel)
     });
 
     if (loggedInUserId) {
-      updateStaff(loggedInUserId, { currentOrderId: orderId });
+      updateStaff(loggedInUserId, { role: 'Domiciliario', currentOrderId: orderId });
     }
   };
 
-  const startTrip = (orderId: string) => {
-    const currentDriver = staff.find(s => s.id === loggedInUserId) || staff.find(s => s.role === 'Domiciliario') || {
-      id: loggedInUserId || 'dom-1',
-      name: username ? (username.charAt(0).toUpperCase() + username.slice(1)) : 'Carlos Mendoza (Domiciliario)',
-      phone: '3114567890',
-      plate: 'CW-789',
-      vehicle: 'Moto Honda CB125'
-    };
+  const startTrip = async (orderId: string) => {
+    // updateOrder() NO persiste status/driver en el servidor (solo hace un
+    // patch optimista local para 'rating'/'reviewText'); antes esta funcion
+    // solo cambiaba el estado local, así que el pedido en la BD se quedaba en
+    // 'listo' sin domiciliario asignado. Al llegar al PIN de entrega, el
+    // backend rechazaba la confirmación porque, según sus propios datos, el
+    // pedido nunca había sido aceptado. Hay que llamar al endpoint real
+    // (accept) y esperar su confirmación antes de tratarlo como iniciado.
+    try {
+      await updateOrderStatus(orderId, 'En Camino');
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'No se pudo iniciar la ruta. Intenta de nuevo.';
+      showToast('danger', message, 'No se Pudo Iniciar la Ruta');
+      setAcceptedOrders(prev => prev.filter(id => id !== orderId));
+      return;
+    }
+
+    const currentDriver = staff.find(s => s.id === loggedInUserId && s.role === 'Domiciliario');
 
     if (loggedInUserId) {
-      updateStaff(loggedInUserId, { currentOrderId: orderId });
+      updateStaff(loggedInUserId, { role: 'Domiciliario', currentOrderId: orderId });
     }
-    updateOrder(orderId, { 
-      status: 'En Camino', 
-      driverName: currentDriver.name,
-      driverPhone: currentDriver.phone,
-      driverPlate: currentDriver.plate || 'CW-789',
-      driverVehicle: currentDriver.vehicle || 'Moto'
-    });
-    const order = deliveries.find(d => d.id === orderId);
+    const order = deliveries.find(d => d.id === orderId) || orders.find(o => o.id === orderId);
     if (order) {
-      setActiveRoute({ 
-        ...order, 
-        status: 'En Camino', 
-        driverName: currentDriver.name,
-        driverPhone: currentDriver.phone,
-        driverPlate: currentDriver.plate,
-        driverVehicle: currentDriver.vehicle
+      setActiveRoute({
+        ...order,
+        status: 'En Camino',
+        driverName: order.driverName || currentDriver?.name,
+        driverPhone: order.driverPhone || currentDriver?.phone,
+        driverPlate: order.driverPlate || currentDriver?.plate,
+        driverVehicle: order.driverVehicle || vehicleWithModel(currentDriver?.vehicle, currentDriver?.vehicleModel)
       });
       showToast('cart', `Ruta hacia ${order.address} iniciada.`, 'Ruta Iniciada');
     }
@@ -333,7 +331,7 @@ export default function DeliveryDashboard() {
     }
 
     if (loggedInUserId) {
-      updateStaff(loggedInUserId, { currentOrderId: '', destCoords: null });
+      updateStaff(loggedInUserId, { role: 'Domiciliario', currentOrderId: '', destCoords: null });
     }
     setAcceptedOrders(prev => prev.filter(id => id !== orderId));
     showToast('success', `El pedido #${orderId} fue entregado con éxito.`, 'Pedido Entregado');
@@ -365,14 +363,26 @@ export default function DeliveryDashboard() {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2 ml-1">Contraseña</label>
-              <input 
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full h-14 px-5 rounded-2xl bg-gray-50 dark:bg-stone-900 border-2 border-gray-100 dark:border-stone-800 focus:border-brand-orange dark:focus:border-brand-orange outline-none transition-colors text-gray-900 dark:text-white font-medium"
-                placeholder="••••••••"
-              />
+              <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2 ml-1">PIN de Acceso</label>
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={loginPin}
+                  onChange={e => setLoginPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  className="w-full h-14 px-5 pr-14 rounded-2xl bg-gray-50 dark:bg-stone-900 border-2 border-gray-100 dark:border-stone-800 focus:border-brand-orange dark:focus:border-brand-orange outline-none transition-colors text-gray-900 dark:text-white font-medium tracking-[0.5em]"
+                  placeholder="••••"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  tabIndex={-1}
+                  className="absolute right-5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
             
             {loginError && (
@@ -416,10 +426,10 @@ export default function DeliveryDashboard() {
 
     return (
       <div className="w-full h-full bg-[#f1f5f9] dark:bg-[#0f172a] rounded-[32px] overflow-hidden relative border border-gray-200 dark:border-stone-800 shadow-inner">
-        <div className="absolute inset-0 z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500]">
-          <MapContainer 
-            center={mapCenter} 
-            zoom={15} 
+        <div className={`absolute inset-0 z-0 [&_.leaflet-container]:bg-transparent [&_.leaflet-control-container]:z-[500] ${theme === 'dark' ? 'leaflet-dark-tiles' : ''}`}>
+          <MapContainer
+            center={mapCenter}
+            zoom={15}
             style={{ width: '100%', height: '100%' }}
             zoomControl={false}
             className="z-0"
@@ -427,8 +437,8 @@ export default function DeliveryDashboard() {
             <CustomZoomControl />
             <MapEffect center={mapCenter} />
             <TileLayer
-              attribution='&copy; OpenStreetMap'
-              url={theme === 'dark' ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"}
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
             
             <Marker 
@@ -800,7 +810,7 @@ export default function DeliveryDashboard() {
             </div>
             
             <p className="text-sm text-gray-500 dark:text-stone-400 mb-6 text-center">
-              Pídele al cliente el <strong className="text-brand-orange">PIN de 4 dígitos</strong> para confirmar la entrega del pedido <span className="whitespace-nowrap">#{pinTargetOrder}</span>.
+              Pídele al cliente el <strong className="text-brand-orange">PIN de 4 dígitos</strong> para confirmar la entrega del pedido <span className="whitespace-nowrap">{pinTargetOrder}</span>.
             </p>
 
             <input

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CustomDatePicker } from '../components/CustomDatePicker';
-import { ArrowLeft, Users, CheckCircle2, Sun, Moon, AlertCircle, Check, User, Mail, Phone, Lock, UserPlus } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle2, Sun, Moon, AlertCircle, Check, User, Mail, Phone, Lock, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useForm } from '../hooks/useForm';
 import { api, ApiError, irA, rutaBase } from '../servicios/api';
@@ -8,6 +8,8 @@ import { api, ApiError, irA, rutaBase } from '../servicios/api';
 export default function Register() {
   const { theme, toggleTheme } = useTheme();
   const [submitSuccess, setSubmitSuccess] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const {
     values,
@@ -361,26 +363,34 @@ export default function Register() {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-stone-300 mb-2 transition-colors duration-100">Contraseña</label>
                   <div className="relative group">
-                    <input 
-                      type="password" 
+                    <input
+                      type={showPassword ? 'text' : 'password'}
                       name="password"
                       placeholder="••••••••"
                       value={values.password}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] pl-11 pr-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
-                        touched.password && errors.password 
-                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
+                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] pl-11 pr-11 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
+                        touched.password && errors.password
+                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10'
                           : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
                       }`}
                     />
                     <div className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${
-                      touched.password && errors.password 
-                        ? 'text-red-500' 
+                      touched.password && errors.password
+                        ? 'text-red-500'
                         : 'text-gray-400 group-focus-within:text-brand-orange'
                     }`}>
                       <Lock className="w-5 h-5" />
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                    >
+                      {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                   {touched.password && errors.password && (
                     <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium transition-all duration-100">
@@ -392,26 +402,34 @@ export default function Register() {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 dark:text-stone-300 mb-2 transition-colors duration-100">Confirmar</label>
                   <div className="relative group">
-                    <input 
-                      type="password" 
+                    <input
+                      type={showConfirmPassword ? 'text' : 'password'}
                       name="confirmPassword"
                       placeholder="••••••••"
                       value={values.confirmPassword}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] pl-11 pr-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
-                        touched.confirmPassword && errors.confirmPassword 
-                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' 
+                      className={`w-full bg-gray-50 dark:bg-[#1a1a1e] border rounded-[20px] pl-11 pr-11 py-3 text-sm text-gray-900 dark:text-white outline-none focus:bg-white dark:focus:bg-[#26262a] transition-all duration-100 tracking-widest placeholder:tracking-normal ${
+                        touched.confirmPassword && errors.confirmPassword
+                          ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10'
                           : 'border-black/5 dark:border-white/5 focus:border-brand-orange focus:ring-4 focus:ring-brand-orange/10'
                       }`}
                     />
                     <div className={`absolute left-4 top-1/2 -translate-y-1/2 transition-colors ${
-                      touched.confirmPassword && errors.confirmPassword 
-                        ? 'text-red-500 font-bold' 
+                      touched.confirmPassword && errors.confirmPassword
+                        ? 'text-red-500 font-bold'
                         : 'text-brand-orange'
                     }`}>
                       <CheckCircle2 className="w-5 h-5" />
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      tabIndex={-1}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
                   </div>
                   {touched.confirmPassword && errors.confirmPassword && (
                     <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1.5 font-medium transition-all duration-100">

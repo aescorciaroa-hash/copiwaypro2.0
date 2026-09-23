@@ -1,13 +1,14 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Award, Box, Check, ChefHat, Edit2, Flame, Layers, Package, Plus, Search, Sparkles, Star, Trash2, TrendingUp, Utensils, X
+  Award, Box, Check, ChefHat, Edit2, Flame, ImageIcon, Layers, Package, Plus, Search, Sparkles, Star, Trash2, TrendingUp, Upload, Utensils, X
 } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
 import { DEFAULT_MENU_CATEGORIES, Product, ProductComponent, InventoryItem, StoreConfig } from '../../store/almacenAplicacion';
 import { ToastData } from '../../components/ToastNotification';
 import { ConfirmModalState } from '../AdminDashboard';
+import { ApiError, subirArchivo } from '../../servicios/api';
 
 export interface NewProductState {
   name: string;
@@ -92,7 +93,25 @@ export default function MenuSection({
   showToast,
   setConfirmModal,
 }: MenuSectionProps) {
-    const handleAddProduct = () => {
+    // Sube la foto al servidor (public/uploads/productos/) y guarda solo su
+    // URL en newProduct.image -- antes se guardaba la imagen completa en
+    // base64 directo en el estado/BD, lo que reventaba la columna 'imagen'
+    // (VARCHAR(255)) con cualquier foto real.
+    const [isUploadingImage, setIsUploadingImage] = React.useState(false);
+    const handleImageFileSelected = async (file: File) => {
+      setIsUploadingImage(true);
+      try {
+        const { url } = await subirArchivo('/uploads/product-image', 'image', file);
+        setNewProduct({...newProduct, image: url});
+      } catch (err) {
+        const mensaje = err instanceof ApiError ? err.message : 'No se pudo subir la imagen.';
+        showToast('danger', mensaje, 'No se Subió la Imagen');
+      } finally {
+        setIsUploadingImage(false);
+      }
+    };
+
+    const handleAddProduct = async () => {
       if (!newProduct.name || !newProduct.price) return;
       
       const prodName = newProduct.name;
@@ -127,50 +146,57 @@ export default function MenuSection({
 
       const finalImg = newProduct.image || defaultImages[newProduct.category] || defaultImages['Hamburguesas'];
 
-      if (editingProductId) {
-        updateProduct(editingProductId, {
-          name: newProduct.name,
-          description: newProduct.description,
-          price: priceVal,
-          image: finalImg,
-          category: newProduct.category || 'Hamburguesas',
-          badge: newProduct.badge || '',
-          costPrice: totalRecipeCost,
-          active: newProduct.active,
-          ingredients: newProduct.ingredients,
-          packaging: newProduct.packaging
+      try {
+        if (editingProductId) {
+          await updateProduct(editingProductId, {
+            name: newProduct.name,
+            description: newProduct.description,
+            price: priceVal,
+            image: finalImg,
+            category: newProduct.category || 'Hamburguesas',
+            badge: newProduct.badge || '',
+            costPrice: totalRecipeCost,
+            active: newProduct.active,
+            ingredients: newProduct.ingredients,
+            packaging: newProduct.packaging
+          });
+          showToast('success', 'El cambio ha sido guardado correctamente.', 'Producto Actualizado');
+          setEditingProductId(null);
+        } else {
+          await addProduct({
+            id: Math.random().toString(36).substr(2, 9),
+            name: newProduct.name,
+            description: newProduct.description,
+            price: priceVal,
+            active: newProduct.active,
+            image: finalImg,
+            category: newProduct.category || 'Hamburguesas',
+            badge: newProduct.badge || '',
+            costPrice: totalRecipeCost,
+            ingredients: newProduct.ingredients,
+            packaging: newProduct.packaging
+          });
+          showToast('success', 'Tu producto ha sido creado exitosamente.', 'Producto Publicado');
+        }
+        setNewProduct({
+          name: '',
+          description: '',
+          price: '',
+          image: '',
+          category: 'Hamburguesas',
+          badge: '',
+          active: true,
+          ingredients: [],
+          packaging: []
         });
-        showToast('success', 'El cambio ha sido guardado correctamente.', 'Producto Actualizado');
-        setEditingProductId(null);
-      } else {
-        addProduct({
-          id: Math.random().toString(36).substr(2, 9),
-          name: newProduct.name,
-          description: newProduct.description,
-          price: priceVal,
-          active: newProduct.active,
-          image: finalImg,
-          category: newProduct.category || 'Hamburguesas',
-          badge: newProduct.badge || '',
-          costPrice: totalRecipeCost,
-          ingredients: newProduct.ingredients,
-          packaging: newProduct.packaging
-        });
-        showToast('success', 'Tu producto ha sido creado exitosamente.', 'Producto Publicado');
+        setTempIngredientName('');
+        setIsProductModalOpen(false);
+      } catch (err) {
+        const mensaje = err instanceof ApiError
+          ? (err.errors ? Object.values(err.errors)[0][0] : err.message)
+          : 'No se pudo guardar el producto.';
+        showToast('danger', mensaje, editingProductId ? 'No se Actualizó el Producto' : 'No se Creó el Producto');
       }
-      setNewProduct({
-        name: '',
-        description: '',
-        price: '',
-        image: '',
-        category: 'Hamburguesas',
-        badge: '',
-        active: true,
-        ingredients: [],
-        packaging: []
-      });
-      setTempIngredientName('');
-      setIsProductModalOpen(false);
     };
 
     const handleEditProduct = (product: Product) => {
@@ -445,47 +471,9 @@ export default function MenuSection({
           const profit = sellingPrice - totalCost;
           const marginPercent = sellingPrice > 0 ? ((profit / sellingPrice) * 100).toFixed(1) : '0';
 
-          const presetImages: Record<string, { label: string; url: string }[]> = {
-            'Hamburguesas': [
-              { label: 'Clásica Gourmet', url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Doble Carne & Queso', url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Tocineta BBQ', url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800' },
-            ],
-            'Hamburguesas de Patacón': [
-              { label: 'Patacón Mixto', url: 'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Patacón Criollo', url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&q=80&w=800' },
-            ],
-            'Perros Calientes': [
-              { label: 'Perro Especial', url: 'https://images.unsplash.com/photo-1619740455993-9e612b1af08a?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Perro Americano', url: 'https://images.unsplash.com/photo-1627054234553-63251a37c02b?auto=format&fit=crop&q=80&w=800' },
-            ],
-            'Mazorcadas': [
-              { label: 'Mazorcada Mixta', url: 'https://images.unsplash.com/photo-1551782450-a2132b4ba21d?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Mazorcada Pollo & Tocineta', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800' },
-            ],
-            'Salchipapas': [
-              { label: 'Salchipapa Salvaje', url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Salchipapa Especial', url: 'https://images.unsplash.com/photo-1586190848861-99aa4a171e90?auto=format&fit=crop&q=80&w=800' },
-            ],
-            'Chorizos': [
-              { label: 'Chorizo Santarrosano', url: 'https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&q=80&w=800' }
-            ],
-            'Bebidas': [
-              { label: 'Gaseosa 400ml', url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&q=80&w=800' },
-              { label: 'Jugo Natural', url: 'https://images.unsplash.com/photo-1551024709-8f23befc6f87?auto=format&fit=crop&q=80&w=800' }
-            ]
-          };
-
           const availableCategories = (storeConfig.categories && storeConfig.categories.length > 0)
             ? storeConfig.categories
             : DEFAULT_MENU_CATEGORIES;
-
-          const currentPresets = presetImages[newProduct.category] || [
-            { label: 'Plato Especial', url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?auto=format&fit=crop&q=80&w=800' },
-            { label: 'Combo Delicioso', url: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&q=80&w=800' },
-            { label: 'Snack & Acompañamiento', url: 'https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&q=80&w=800' },
-            { label: 'Bebida Refrescante', url: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&q=80&w=800' },
-          ];
 
           return (
             <motion.div 
@@ -648,52 +636,53 @@ export default function MenuSection({
                     {/* Image Selection */}
                     <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-3">
                       <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">2. Imagen del Producto</h3>
-                      
-                      <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                        <span className="text-xs font-bold text-gray-500 shrink-0">Fotos rápidas:</span>
-                        {currentPresets.map((preset, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => setNewProduct({...newProduct, image: preset.url})}
-                            className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all border ${
-                              newProduct.image === preset.url
-                                ? 'bg-brand-orange text-white border-brand-orange'
-                                : 'bg-white dark:bg-stone-800 text-gray-700 dark:text-stone-300 border-gray-200 dark:border-stone-700 hover:border-brand-orange'
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
 
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={newProduct.image}
-                          onChange={e => setNewProduct({...newProduct, image: e.target.value})}
-                          placeholder="O pega una URL de imagen (https://...)"
-                          className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-xs text-gray-900 dark:text-white outline-none focus:border-brand-orange"
-                        />
-                        <label className="px-3.5 py-2 rounded-xl bg-white dark:bg-stone-800 border border-gray-200 dark:border-stone-700 text-xs font-bold text-gray-700 dark:text-stone-300 hover:bg-gray-100 cursor-pointer flex items-center gap-1.5 transition-colors">
-                          <Plus className="w-3.5 h-3.5" /> Subir
-                          <input 
-                            type="file" 
+                      {newProduct.image ? (
+                        <div className="relative rounded-xl overflow-hidden border border-gray-200 dark:border-stone-700 group">
+                          <img src={newProduct.image} alt="Producto" className="w-full h-36 object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setNewProduct({...newProduct, image: ''})}
+                            className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 transition-colors cursor-pointer"
+                            title="Quitar imagen"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                          <label className="absolute inset-0 bg-black/0 group-hover:bg-black/40 flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition-all cursor-pointer">
+                            {isUploadingImage ? 'Subiendo...' : <><Upload className="w-4 h-4 mr-1.5" /> Cambiar Foto</>}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              disabled={isUploadingImage}
+                              onChange={e => {
+                                if (e.target.files && e.target.files[0]) {
+                                  handleImageFileSelected(e.target.files[0]);
+                                }
+                                e.target.value = '';
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <label className={`flex flex-col items-center justify-center gap-2 h-36 rounded-xl border-2 border-dashed transition-colors ${isUploadingImage ? 'border-brand-orange text-brand-orange cursor-wait' : 'border-gray-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-gray-500 dark:text-stone-400 hover:border-brand-orange hover:text-brand-orange cursor-pointer'}`}>
+                          <Upload className={`w-6 h-6 ${isUploadingImage ? 'animate-pulse' : ''}`} />
+                          <span className="text-sm font-bold">{isUploadingImage ? 'Subiendo imagen...' : 'Subir Imagen'}</span>
+                          {!isUploadingImage && <span className="text-[11px]">PNG o JPG</span>}
+                          <input
+                            type="file"
                             accept="image/*"
+                            disabled={isUploadingImage}
                             onChange={e => {
                               if (e.target.files && e.target.files[0]) {
-                                const file = e.target.files[0];
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  setNewProduct({...newProduct, image: reader.result as string});
-                                };
-                                reader.readAsDataURL(file);
+                                handleImageFileSelected(e.target.files[0]);
                               }
-                            }} 
+                              e.target.value = '';
+                            }}
                             className="hidden"
                           />
                         </label>
-                      </div>
+                      )}
                     </div>
 
                     {/* Recipe / Escandallo Builder */}
@@ -1205,12 +1194,19 @@ export default function MenuSection({
                       </div>
 
                       <div className="bg-white dark:bg-stone-900 rounded-3xl border border-gray-200 dark:border-stone-800 overflow-hidden shadow-md">
-                        <div className="relative h-44 w-full bg-gray-100 dark:bg-stone-800 overflow-hidden">
-                          <img 
-                            src={newProduct.image || currentPresets[0]?.url} 
-                            alt={newProduct.name || 'Preview'} 
-                            className="w-full h-full object-cover"
-                          />
+                        <div className="relative h-44 w-full bg-gray-100 dark:bg-stone-800 overflow-hidden flex items-center justify-center">
+                          {newProduct.image ? (
+                            <img
+                              src={newProduct.image}
+                              alt={newProduct.name || 'Preview'}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center gap-1.5 text-gray-400 dark:text-stone-600">
+                              <ImageIcon className="w-8 h-8" />
+                              <span className="text-[11px] font-bold">Sin imagen</span>
+                            </div>
+                          )}
                           {newProduct.badge && (
                             <span className="absolute top-3 left-3 bg-brand-orange text-white text-[11px] font-black px-3 py-1 rounded-full shadow-md flex items-center gap-1">
                               {newProduct.badge === 'Más Vendido' && <Flame className="w-3 h-3 text-white" />}
@@ -1406,12 +1402,19 @@ export default function MenuSection({
                                   message: `¿Estás seguro de eliminar la categoría "${cat}" del menú? Los productos asociados permanecerán en el sistema.`,
                                   confirmText: 'Eliminar',
                                   type: 'danger',
-                                  onConfirm: () => {
-                                    removeCategory(cat);
-                                    if (selectedCatalogCategory === cat) {
-                                      setSelectedCatalogCategory('Todas');
+                                  onConfirm: async () => {
+                                    try {
+                                      await removeCategory(cat);
+                                      if (selectedCatalogCategory === cat) {
+                                        setSelectedCatalogCategory('Todas');
+                                      }
+                                      showToast('info', `Categoría "${cat}" eliminada`, 'Categorías');
+                                    } catch (err) {
+                                      const mensaje = err instanceof ApiError ? err.message : 'No se pudo eliminar la categoría.';
+                                      showToast('danger', mensaje, 'No se Eliminó la Categoría');
+                                    } finally {
+                                      setConfirmModal(prev => ({ ...prev, isOpen: false }));
                                     }
-                                    showToast('info', `Categoría "${cat}" eliminada`, 'Categorías');
                                   }
                                 });
                               }}

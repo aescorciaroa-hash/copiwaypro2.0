@@ -89,7 +89,7 @@ export default function ActiveOrdersSection({
                           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
                         </div>
                         <h4 className="font-bold text-gray-900 dark:text-white text-sm">
-                          {order.driverName || 'Carlos Mendoza (Repartidor Copiway)'}
+                          {order.driverName || 'Repartidor de Copiway'}
                         </h4>
                         <p className="text-xs text-gray-500 dark:text-stone-400">
                           {order.driverVehicle || 'Motocicleta'} • Placa: <span className="font-mono font-bold text-gray-700 dark:text-stone-300">{order.driverPlate || 'CW-789'}</span>

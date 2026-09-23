@@ -131,15 +131,23 @@ class AuthController {
         global $conn;
         $datos = $this->entrada();
 
+        // Los paneles de Cocina y Domiciliario mandan 'pin' en vez de
+        // 'password' (ver Auth::intentarLoginConPin) -- admin/client siempre
+        // usan contrasena.
+        $usaPin = !empty($datos['pin']);
+
         $errores = [];
         if (empty($datos['email']) || !filter_var($datos['email'], FILTER_VALIDATE_EMAIL)) $errores['email'] = ['El campo email debe ser un correo válido.'];
-        if (empty($datos['password'])) $errores['password'] = ['El campo password es obligatorio.'];
+        if ($usaPin) {
+            if (!preg_match('/^\d{4}$/', (string) $datos['pin'])) $errores['pin'] = ['El PIN debe tener 4 dígitos.'];
+        } else {
+            if (empty($datos['password'])) $errores['password'] = ['El campo password es obligatorio.'];
+        }
         if (!empty($errores)) {
             responderError('Datos inválidos.', 422, $errores);
         }
 
         $email = trim((string) $datos['email']);
-        $password = (string) $datos['password'];
         $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
         $intentoModelo = new IntentoLogin($conn);
@@ -148,12 +156,14 @@ class AuthController {
         }
 
         $auth = new Autenticacion($conn);
-        $usuario = $auth->intentarLogin($email, $password);
+        $usuario = $usaPin
+            ? $auth->intentarLoginConPin($email, (string) $datos['pin'])
+            : $auth->intentarLogin($email, (string) $datos['password']);
 
         $intentoModelo->registrar($email, $ip, (bool) $usuario);
 
         if (!$usuario) {
-            responderError('Correo o contraseña incorrectos.', 401);
+            responderError($usaPin ? 'Usuario o PIN incorrectos.' : 'Correo o contraseña incorrectos.', 401);
         }
 
         responderJson(['user' => $usuario, 'csrfToken' => csrfToken()]);
@@ -183,5 +193,17 @@ class AuthController {
             'role' => $auth->rolActual(),
             'csrfToken' => csrfToken(),
         ]);
+    }
+
+    /**
+     * A diferencia de me(), no exige sesion: es lo que usa cualquier
+     * visitante sin cuenta (pantalla de login/registro) para conseguir su
+     * primer token CSRF antes de enviar ese mismo formulario. Sin esto, en
+     * "npm run dev" (sin window.__DATOS__ del layout PHP) el primer POST de
+     * un invitado siempre fallaba con 419 porque nunca habia un token que
+     * enviar.
+     */
+    public function csrf() {
+        responderJson(['csrfToken' => csrfToken()]);
     }
 }

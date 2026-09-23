@@ -107,7 +107,7 @@ class Configuracion {
             return;
         }
 
-        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES ('', ?, 'menu')", [$nombre]);
+        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, 'menu')", [$nombre]);
         $stmtIns->close();
     }
 
