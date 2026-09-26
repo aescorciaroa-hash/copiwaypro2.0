@@ -221,9 +221,11 @@ export default function AdminDashboard() {
   });
   const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [copiedStaffCreds, setCopiedStaffCreds] = useState(false);
+  const [staffModalReadOnly, setStaffModalReadOnly] = useState(false);
 
-  const handleOpenStaffModal = (emp: Staff) => {
+  const handleOpenStaffModal = (emp: Staff, readOnly: boolean = false) => {
     setSelectedStaffInfo(emp);
+    setStaffModalReadOnly(readOnly);
     setStaffEditData({
       name: emp.name || "",
       phone: emp.phone || "",
@@ -946,21 +948,40 @@ export default function AdminDashboard() {
         <div ref={mainContentRef} className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full min-w-0">
           {/* Alerta de Stock Crítico */}
           {inventory.filter(i => i.stock > 0 && i.stock <= 10).length > 0 && (
-            <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-4 flex items-start gap-4 shadow-sm animate-pulse">
-              <div className="bg-red-100 dark:bg-red-900/50 p-2 rounded-full shrink-0 mt-0.5">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-red-800 dark:text-red-300 font-bold text-sm">⚠️ ALERTA PREVENTIVA: STOCK CRÍTICO</h4>
-                <p className="text-red-600 dark:text-red-400 text-sm mt-1">
-                  Los siguientes insumos están a punto de agotarse. Reabastece pronto para evitar bloqueos en las ventas:
-                </p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {inventory.filter(i => i.stock > 0 && i.stock <= 10).map(item => (
-                    <span key={item.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-bold rounded-lg border border-red-200 dark:border-red-800/50">
-                      {item.name} <span className="text-red-500 dark:text-red-400">({item.stock} uds)</span>
-                    </span>
-                  ))}
+            <div className="mb-6 relative overflow-hidden bg-gradient-to-br from-red-50 via-red-50 to-orange-50 dark:from-red-950/30 dark:via-red-950/20 dark:to-orange-950/10 border border-red-200/80 dark:border-red-900/40 rounded-[24px] p-5 shadow-sm">
+              <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-red-200/30 dark:bg-red-900/20 blur-2xl pointer-events-none" />
+              <div className="relative flex items-start gap-4">
+                <div className="relative shrink-0 mt-0.5">
+                  <div className="absolute inset-0 rounded-2xl bg-red-500/30 animate-ping" />
+                  <div className="relative bg-red-500 text-white p-2.5 rounded-2xl shadow-md shadow-red-500/30">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-red-800 dark:text-red-300 font-black text-sm tracking-tight">Alerta Preventiva: Stock Crítico</h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500 text-white">
+                        {inventory.filter(i => i.stock > 0 && i.stock <= 10).length}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('inventory')}
+                      className="group inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white dark:bg-red-500/15 text-red-700 dark:text-red-200 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white text-xs font-bold transition-all duration-200 shadow-sm shadow-red-500/10 active:scale-95 shrink-0 cursor-pointer border border-red-300 dark:border-red-500/40 hover:border-red-600"
+                    >
+                      Ir a Inventario <ArrowRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+                    </button>
+                  </div>
+                  <p className="text-red-600/90 dark:text-red-400/90 text-sm mt-1 font-medium">
+                    Los siguientes insumos están a punto de agotarse. Reabastece pronto para evitar bloqueos en las ventas.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {inventory.filter(i => i.stock > 0 && i.stock <= 10).map(item => (
+                      <span key={item.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/80 dark:bg-stone-900/60 text-red-700 dark:text-red-300 text-xs font-bold rounded-xl border border-red-200/80 dark:border-red-800/40 shadow-xs">
+                        {item.name} <span className="text-red-500 dark:text-red-400 font-black">{item.stock} uds</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1518,7 +1539,7 @@ export default function AdminDashboard() {
                       <div className="flex justify-between items-start mb-4">
                         <div>
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{order.id}</span>
+                            <span className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{String(order.id).replace(/^#/, '')}</span>
                             <span className={`px-2.5 py-1 text-[10px] font-black tracking-wider rounded-full uppercase ${order.status === 'Entregado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
                               {order.status}
                             </span>
@@ -1700,18 +1721,25 @@ export default function AdminDashboard() {
                       </span>
                     </div>
                     {manualOrderItems.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center bg-white dark:bg-stone-800 p-3.5 rounded-xl shadow-xs border border-gray-100 dark:border-stone-700">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="w-8 h-8 rounded-full bg-brand-orange/10 text-brand-orange font-black text-xs flex items-center justify-center shrink-0">{item.quantity}x</span>
-                          <div className="min-w-0">
-                            <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{item.name}</p>
-                            {(item.removed.length > 0 || item.extras.length > 0) && (
-                              <div className="flex flex-wrap gap-2 mt-1">
-                                {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
-                                {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
-                              </div>
-                            )}
+                      <div key={idx} className="flex items-center gap-4 bg-white dark:bg-stone-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-stone-700">
+                        {item.product?.image ? (
+                          <img src={item.product.image} alt={item.name} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-gray-100 dark:border-stone-700" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0 font-black text-sm">
+                            {item.quantity}x
                           </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-brand-orange/10 text-brand-orange font-black text-[11px] flex items-center justify-center shrink-0">{item.quantity}x</span>
+                            <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{item.name}</p>
+                          </div>
+                          {(item.removed.length > 0 || item.extras.length > 0) && (
+                            <div className="flex flex-wrap gap-2 mt-1.5">
+                              {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
+                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
                           <span className="font-black text-sm text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
@@ -1886,12 +1914,22 @@ export default function AdminDashboard() {
               onClick={e => e.stopPropagation()}
               className="bg-white dark:bg-[#151515] rounded-[32px] w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0">
-                <div>
-                  <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Orden {viewingOrder.id}</h3>
-                  <p className="text-gray-500 font-medium">Detalles completos de la orden</p>
+              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0 bg-gradient-to-br from-brand-orange/5 to-transparent">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-orange text-white flex items-center justify-center shrink-0 shadow-sm shadow-brand-orange/30">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Orden</h3>
+                      <span className="px-2.5 py-1 rounded-lg bg-brand-orange/10 text-brand-orange text-sm font-black tracking-wide">
+                        {viewingOrder.id.replace(/^#/, '')}
+                      </span>
+                    </div>
+                    <p className="text-gray-500 font-medium text-sm">Detalles completos de la orden</p>
+                  </div>
                 </div>
-                <button onClick={() => setViewingOrder(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors">
+                <button onClick={() => setViewingOrder(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors shrink-0">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -1929,21 +1967,50 @@ export default function AdminDashboard() {
 
                 <div>
                    <h4 className="font-bold text-gray-900 dark:text-white mb-4">Información del Cliente</h4>
-                   <div className="space-y-3">
-                     <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                        <Users className="w-4 h-4 shrink-0" /> <span className="font-medium text-gray-900 dark:text-white">{viewingOrder.client || 'Cliente General'}</span>
-                     </p>
+                   <div className="bg-gray-50/50 dark:bg-stone-900 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-3">
+                     <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-3 min-w-0">
+                         <div className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold flex items-center justify-center text-sm shrink-0">
+                           {(viewingOrder.client || 'Cliente General').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                         </div>
+                         <div className="min-w-0">
+                           <p className="font-black text-gray-900 dark:text-white text-base leading-tight truncate">{viewingOrder.client || 'Cliente General'}</p>
+                           {viewingOrder.clientPhone && (
+                             <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{viewingOrder.clientPhone}</p>
+                           )}
+                         </div>
+                       </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 gap-2.5 pt-3 border-t border-gray-200/70 dark:border-stone-800 text-xs">
+                       <div className="flex items-start gap-2 text-gray-600 dark:text-stone-400">
+                         <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand-orange" />
+                         <span className="font-semibold text-gray-800 dark:text-stone-200">{viewingOrder.address}</span>
+                       </div>
+                       <div className="flex items-center gap-2 text-gray-600 dark:text-stone-400">
+                         <Clock className="w-3.5 h-3.5 shrink-0 text-brand-orange" />
+                         <span className="font-semibold text-gray-800 dark:text-stone-200">{new Date(viewingOrder.date || Date.now()).toLocaleString()}</span>
+                       </div>
+                     </div>
+
                      {viewingOrder.clientPhone && (
-                       <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                          <span className="w-4 h-4 shrink-0 font-bold flex items-center justify-center text-[10px] border border-gray-400 rounded-full">TEL</span> <span className="font-medium">{viewingOrder.clientPhone}</span>
-                       </p>
+                       <div className="flex items-center gap-2 pt-1">
+                         <a
+                           href={`https://wa.me/57${viewingOrder.clientPhone.replace(/\D/g, '')}`}
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                         >
+                           <span>WhatsApp</span>
+                         </a>
+                         <a
+                           href={`tel:${viewingOrder.clientPhone}`}
+                           className="py-2 px-3 bg-white dark:bg-stone-800 hover:bg-gray-100 dark:hover:bg-stone-700 text-gray-700 dark:text-stone-200 border border-gray-200 dark:border-stone-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                         >
+                           <span>Llamar</span>
+                         </a>
+                       </div>
                      )}
-                     <p className="text-gray-600 dark:text-stone-300 flex items-start gap-2">
-                        <MapPin className="w-4 h-4 mt-1 shrink-0" /> <span className="font-medium">{viewingOrder.address}</span>
-                     </p>
-                     <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                        <Clock className="w-4 h-4 shrink-0" /> <span className="font-medium">{new Date(viewingOrder.date || Date.now()).toLocaleString()}</span>
-                     </p>
                    </div>
                 </div>
 
@@ -2042,49 +2109,65 @@ export default function AdminDashboard() {
                       <ShoppingBag className="w-5 h-5" /> Artículos ({viewingOrder.items.length})
                    </h4>
                    <ul className="space-y-3">
-                     {viewingOrder.items.map((item: OrderItem, idx: number) => (
-                        <li key={idx} className="flex flex-col text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 px-4 py-3 rounded-xl border border-gray-100 dark:border-stone-800">
-                          <div className="flex justify-between w-full">
-                            <span className="font-medium"><span className="text-brand-orange font-bold mr-2">{item.quantity}x</span> {item.name}</span>
-                            {item.price && <span className="font-bold">{formatCOP(item.price * (item.quantity || 1))}</span>}
-                          </div>
-                          {item.modifications && item.modifications.length > 0 && (
-                            <ul className="mt-2 space-y-1 pl-6">
-                              {item.modifications.map((mod: string, mIdx: number) => (
-                                <li key={mIdx} className="text-sm font-bold text-red-500">{mod}</li>
-                              ))}
-                            </ul>
+                     {viewingOrder.items.map((item: OrderItem, idx: number) => {
+                       const itemImage = item.product?.image || products.find(p => p.id === item.productId)?.image;
+                       return (
+                        <li key={idx} className="flex items-center gap-4 text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl border border-gray-100 dark:border-stone-800">
+                          {itemImage ? (
+                            <img src={itemImage} alt={item.name} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-gray-200 dark:border-stone-700" />
+                          ) : (
+                            <div className="w-16 h-16 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                              <ShoppingBag className="w-6 h-6" />
+                            </div>
                           )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start gap-2">
+                              <span className="font-bold leading-snug">
+                                <span className="text-brand-orange font-black mr-1.5">{item.quantity}x</span> {item.name}
+                              </span>
+                              {item.price && <span className="font-black shrink-0">{formatCOP(item.price * (item.quantity || 1))}</span>}
+                            </div>
+                            {item.modifications && item.modifications.length > 0 && (
+                              <ul className="mt-1.5 space-y-0.5">
+                                {item.modifications.map((mod: string, mIdx: number) => (
+                                  <li key={mIdx} className="text-sm font-bold text-red-500">{mod}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         </li>
-                     ))}
+                       );
+                     })}
                    </ul>
                    
-                   {(viewingOrder.subtotal || viewingOrder.shipping || viewingOrder.discount) && (
-                     <div className="mt-4 border-t border-gray-200 dark:border-stone-700 pt-4 space-y-2">
-                       {viewingOrder.subtotal && (
-                         <div className="flex justify-between text-sm text-gray-600 dark:text-stone-400">
-                           <span>Subtotal</span>
-                           <span>{formatCOP(viewingOrder.subtotal)}</span>
+                   {(viewingOrder.subtotal || viewingOrder.shipping || viewingOrder.discount) ? (
+                     <div className="mt-4 bg-gray-50 dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-4 space-y-2.5">
+                       {viewingOrder.subtotal ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-gray-500 dark:text-stone-400 font-medium">Subtotal</span>
+                           <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(viewingOrder.subtotal)}</span>
                          </div>
-                       )}
-                       {viewingOrder.shipping && (
-                         <div className="flex justify-between text-sm text-gray-600 dark:text-stone-400">
-                           <span>Domicilio</span>
-                           <span>{formatCOP(viewingOrder.shipping)}</span>
+                       ) : null}
+                       {viewingOrder.shipping ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                             <Truck className="w-3.5 h-3.5" /> Domicilio
+                           </span>
+                           <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(viewingOrder.shipping)}</span>
                          </div>
-                       )}
-                       {viewingOrder.discount > 0 && (
-                         <div className="flex justify-between text-sm text-brand-orange font-bold">
-                           <span>Descuento</span>
-                           <span>-{formatCOP(viewingOrder.discount)}</span>
+                       ) : null}
+                       {viewingOrder.discount > 0 ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-emerald-600 dark:text-emerald-400 font-bold">Descuento</span>
+                           <span className="font-bold text-emerald-600 dark:text-emerald-400">-{formatCOP(viewingOrder.discount)}</span>
                          </div>
-                       )}
-                       <div className="flex justify-between text-lg font-black text-gray-900 dark:text-white pt-2 border-t border-gray-100 dark:border-stone-800">
+                       ) : null}
+                       <div className="flex justify-between items-center text-lg font-black text-gray-900 dark:text-white pt-2.5 mt-1 border-t border-dashed border-gray-200 dark:border-stone-700">
                          <span>Total</span>
-                         <span>{formatCOP(viewingOrder.total)}</span>
+                         <span className="text-brand-orange">{formatCOP(viewingOrder.total)}</span>
                        </div>
                      </div>
-                   )}
+                   ) : null}
                 </div>
               </div>
               <div className="p-6 md:p-8 bg-gray-50 dark:bg-stone-900 border-t border-gray-100 dark:border-stone-800 shrink-0">
@@ -2176,9 +2259,99 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
+              {staffModalReadOnly ? (
+              <>
+              {/* Vista de Solo Lectura (Repartidores desde Gestionar Repartidores) */}
+              <div className="p-6 space-y-3.5 overflow-y-auto max-h-[60vh]">
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                    <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Rol Operativo</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                      {selectedStaffInfo.role === 'Ayudante de cocina' ? <ChefHat className="w-3.5 h-3.5 text-brand-orange" /> : <Package className="w-3.5 h-3.5 text-brand-orange" />}
+                      {selectedStaffInfo.role}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                    <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Estado</p>
+                    {selectedStaffInfo.active ? (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/50">Activo</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 dark:bg-stone-800 dark:text-stone-400">Inactivo</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                  <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Correo Electrónico</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white break-all">{selectedStaffInfo.email || 'Sin registrar'}</p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                  <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Teléfono</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedStaffInfo.phone || 'Sin registrar'}</p>
+                </div>
+
+                {selectedStaffInfo.role === 'Domiciliario' && (
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Placa</p>
+                      <p className="text-sm font-bold uppercase text-gray-900 dark:text-white">{selectedStaffInfo.plate || 'Sin placa'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Vehículo</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white capitalize">{selectedStaffInfo.vehicle || 'Moto'}</p>
+                    </div>
+                    <div className="col-span-2 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Marca y Modelo</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedStaffInfo.vehicleModel || 'Sin registrar'}</p>
+                    </div>
+                    <div className="col-span-2 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Base Efectivo Asignada</p>
+                      <p className="text-sm font-black text-gray-900 dark:text-white">{formatCOP(selectedStaffInfo.baseCash || 0)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de Pie: solo lectura -- avisos y contacto, sin edicion */}
+              <div className="p-4 px-6 bg-gray-50/70 dark:bg-stone-900/40 border-t border-gray-100 dark:border-stone-800 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedStaffInfo(null)}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 dark:text-stone-400 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+                >
+                  Cerrar
+                </button>
+                <div className="flex-1" />
+                {selectedStaffInfo.phone && (
+                  <>
+                    <a
+                      href={`tel:${selectedStaffInfo.phone}`}
+                      className="px-4 py-2 rounded-xl text-sm font-bold border border-gray-200 dark:border-stone-700 text-gray-700 dark:text-stone-200 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors flex items-center gap-1.5"
+                    >
+                      Llamar
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = (selectedStaffInfo.phone || '').replace(/\D/g, '');
+                        const text = encodeURIComponent(`Hola ${selectedStaffInfo.name}, te escribimos desde Copiway.`);
+                        window.open(`https://wa.me/${clean.startsWith('57') ? clean : '57' + clean}?text=${text}`, '_blank');
+                      }}
+                      className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      Enviar Aviso
+                    </button>
+                  </>
+                )}
+              </div>
+              </>
+              ) : (
+              <>
               {/* Contenido del Formulario */}
               <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
-                
+
                 {/* Nombre y Rol */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
@@ -2303,7 +2476,7 @@ export default function AdminDashboard() {
                     value={staffEditData.pin}
                     onChange={e => setStaffEditData({...staffEditData, pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
                     className="w-full pl-3.5 pr-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-stone-700 bg-gray-50/50 dark:bg-stone-900/50 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-colors tracking-widest"
-                    placeholder={selectedStaffInfo?.hasPin ? 'Ya tiene un PIN — deja vacío para no cambiarlo' : 'Ej. 1234'}
+                    placeholder="Ingresa PIN"
                   />
                 </div>
 
@@ -2468,6 +2641,8 @@ export default function AdminDashboard() {
                   Guardar Cambios
                 </button>
               </div>
+              </>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -2480,33 +2655,56 @@ export default function AdminDashboard() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="bg-white dark:bg-[#151515] w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0">
-                <div>
-                  <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Historial del Cliente</h3>
-                  <p className="text-gray-500 font-medium">{selectedClientInfo.name} - {selectedClientInfo.phone}</p>
+              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0 bg-gradient-to-br from-brand-orange/5 to-transparent">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-sm shadow-brand-orange/30">
+                    {selectedClientInfo.name ? selectedClientInfo.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'CL'}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Historial del Cliente</h3>
+                    <p className="text-gray-500 font-medium text-sm truncate">{selectedClientInfo.name} · {selectedClientInfo.phone}</p>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedClientInfo(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors">
+                <button onClick={() => setSelectedClientInfo(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors shrink-0">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-6 md:p-8 space-y-4 overflow-y-auto">
-                <h4 className="font-bold text-gray-900 dark:text-white mb-2">Pedidos Realizados</h4>
+              <div className="p-6 md:p-8 space-y-3 overflow-y-auto">
+                <h4 className="font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-brand-orange" /> Pedidos Realizados
+                </h4>
                 {orders.filter(o => o.clientPhone === selectedClientInfo.phone || o.client === selectedClientInfo.name).length === 0 ? (
-                   <p className="text-gray-500 text-sm">No hay pedidos registrados.</p>
+                   <div className="bg-gray-50 dark:bg-stone-900 p-6 rounded-2xl border border-gray-100 dark:border-stone-800 text-center">
+                     <p className="text-gray-500 text-sm font-medium">No hay pedidos registrados.</p>
+                   </div>
                 ) : (
                    orders.filter(o => o.clientPhone === selectedClientInfo.phone || o.client === selectedClientInfo.name).map(o => (
-                     <div key={o.id} className="border border-gray-100 dark:border-stone-800 p-4 rounded-xl">
-                       <div className="flex justify-between items-start mb-2">
-                         <span className="font-bold text-gray-900 dark:text-white">{o.id}</span>
-                         <span className="font-bold text-brand-orange">{formatCOP(o.total)}</span>
+                     <button
+                       type="button"
+                       key={o.id}
+                       onClick={() => { setViewingOrder(o); setSelectedClientInfo(null); }}
+                       className="w-full text-left bg-gray-50 dark:bg-stone-900 border border-gray-100 dark:border-stone-800 p-4 rounded-2xl hover:border-brand-orange/40 hover:bg-orange-50/30 dark:hover:bg-stone-900/60 transition-colors cursor-pointer group"
+                     >
+                       <div className="flex justify-between items-center mb-2">
+                         <span className="px-2.5 py-1 rounded-lg bg-brand-orange/10 text-brand-orange text-xs font-black tracking-wide">
+                           {String(o.id).replace(/^#/, '')}
+                         </span>
+                         <div className="flex items-center gap-2">
+                           <span className="font-black text-gray-900 dark:text-white">{formatCOP(o.total)}</span>
+                           <ChevronRight className="w-4 h-4 text-gray-300 dark:text-stone-600 group-hover:text-brand-orange group-hover:translate-x-0.5 transition-all" />
+                         </div>
                        </div>
-                       <p className="text-sm text-gray-600 dark:text-stone-300">{new Date(o.date).toLocaleString()}</p>
-                       <p className="text-sm text-gray-600 dark:text-stone-300 mt-2"><strong>Entregado por:</strong> {o.driverName || 'No asignado'}</p>
-                     </div>
+                       <p className="text-sm text-gray-600 dark:text-stone-300 flex items-center gap-1.5">
+                         <Clock className="w-3.5 h-3.5 shrink-0" /> {new Date(o.date).toLocaleString()}
+                       </p>
+                       <p className="text-sm text-gray-600 dark:text-stone-300 mt-1.5 flex items-center gap-1.5">
+                         <span className="font-semibold">Entregado por:</span> {o.driverName || 'No asignado'}
+                       </p>
+                     </button>
                    ))
                 )}
               </div>

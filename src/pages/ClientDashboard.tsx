@@ -7,12 +7,13 @@ import {
   Sun, Moon, Utensils, LayoutGrid, RotateCcw, 
   ShoppingCart, Gift, AlertCircle, CheckCircle2, Trash2, X,
   ChefHat, Minus, Plus, MessageCircle, Star, Smartphone, Layers, CreditCard, Banknote,
-  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff
+  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff, User
 } from 'lucide-react';
 
-import { formatCOP } from '../lib/format';
+import { formatCOP, orderCode } from '../lib/format';
+import { IngredientThumb } from './client/ingredientArt';
 import { CustomDatePicker } from '../components/CustomDatePicker';
-import { useStore, Product, ProductComponent, Order } from '../store/almacenAplicacion';
+import { useStore, Product, ProductComponent, Order, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
@@ -33,12 +34,14 @@ export interface SyncedIngredient {
   category: string;
   stock: number;
   unit: string;
+  image?: string;
 }
 
 export interface ConfirmModalState {
   isOpen: boolean;
   title: string;
   message: string;
+  details?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   type?: 'danger' | 'warning' | 'info' | 'success';
@@ -255,7 +258,8 @@ export default function ClientDashboard() {
         price: pvpPrice,
         category: ing.category || (invMatch?.category ? invMatch.category.toLowerCase() : 'extra'),
         stock: actualStock,
-        unit: invMatch?.unit || 'Und'
+        unit: invMatch?.unit || 'Und',
+        image: ing.image || invMatch?.image
       });
     });
 
@@ -278,7 +282,8 @@ export default function ClientDashboard() {
           price: pvpPrice,
           category: cat,
           stock: inv.stock,
-          unit: inv.unit || 'Und'
+          unit: inv.unit || 'Und',
+          image: inv.image
         });
       }
     });
@@ -597,6 +602,14 @@ export default function ClientDashboard() {
     }
   };
 
+  const formatOrderDate = (order: Order) => {
+    const d = new Date(String(order.date || '').replace(' ', 'T'));
+    if (isNaN(d.getTime())) return order.date || '';
+    const day = d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+    const time = d.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' });
+    return `${day} · ${time}`;
+  };
+
   // RF-08: Recompra en 1 clic con comprobación exhaustiva de stock
   const reorder = (order: Order) => {
     if (!order || !order.items || order.items.length === 0) {
@@ -604,65 +617,179 @@ export default function ClientDashboard() {
       return;
     }
 
-    const unavailableItems: string[] = [];
-
-    // Verificar cada ítem del pedido contra catálogo e inventario
-    for (const item of order.items) {
+    // Estado de cada artículo frente al sistema actual: descontinuado (ya no se vende),
+    // con faltantes (ingredientes agotados, se puede pedir bajo aviso) o disponible.
+    type ItemStatus = { discontinued: boolean; missing: string[] };
+    const statuses: ItemStatus[] = order.items.map((item) => {
+      const missing: string[] = [];
       if (item.isCustom) {
-        // Validar ingredientes y extras de la hamburguesa personalizada
-        const stackItems = item.stack || item.extras || [];
-        for (const ing of stackItems) {
-          const invMatch = inventory.find(i => 
-            i.id === ing.id || 
+        for (const ing of item.stack || item.extras || []) {
+          const invMatch = inventory.find(i =>
+            i.id === ing.id ||
             (i.name && ing.name && i.name.trim().toLowerCase() === ing.name.trim().toLowerCase())
           );
-          if (invMatch && invMatch.stock <= 0) {
-            unavailableItems.push(ing.name || 'Ingrediente personalizado');
-          }
+          if (invMatch && invMatch.stock <= 0) missing.push(ing.name || 'Ingrediente');
         }
-      } else {
-        // Validar si el producto de catálogo existe y está activo
-        const catProduct = catalog.find(p => p.id === item.id || p.name.toLowerCase() === item.name.toLowerCase());
-        if (!catProduct || catProduct.active === false) {
-          unavailableItems.push(item.name || 'Producto del menú');
-        } else if (catProduct.ingredients && catProduct.ingredients.length > 0) {
-          // Validar insumos base de la receta no excluidos
-          const removedNames = (item.removed || []).map((r) => ((r.name || r) as string).toLowerCase());
-          for (const baseIng of catProduct.ingredients) {
-            const ingName = (typeof baseIng === 'string' ? baseIng : baseIng.name || '').toLowerCase();
-            if (!removedNames.includes(ingName)) {
-              const invMatch = inventory.find(i => (i.name || '').toLowerCase() === ingName);
-              if (invMatch && invMatch.stock <= 0) {
-                unavailableItems.push(`${catProduct.name} (${invMatch.name} agotado)`);
-              }
-            }
-          }
-        }
+        return { discontinued: false, missing };
       }
-    }
+      const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+      if (!catProduct || catProduct.active === false) return { discontinued: true, missing };
+      const removedNames = (item.removed || []).map((r) => ((r.name || r) as string).toLowerCase());
+      for (const baseIng of catProduct.ingredients || []) {
+        const ingName = (typeof baseIng === 'string' ? baseIng : baseIng.name || '');
+        if (removedNames.includes(ingName.toLowerCase())) continue;
+        const invMatch = inventory.find(i => (i.name || '').toLowerCase() === ingName.toLowerCase());
+        if (invMatch && invMatch.stock <= 0) missing.push(invMatch.name);
+      }
+      for (const ex of item.extras || []) {
+        const invMatch = inventory.find(i => i.id === ex.id || (i.name || '').toLowerCase() === (ex.name || '').toLowerCase());
+        if (invMatch && invMatch.stock <= 0) missing.push(invMatch.name);
+      }
+      return { discontinued: false, missing };
+    });
 
-    if (unavailableItems.length > 0) {
-      showToast(
-        'warning', 
-        `No se puede duplicar el pedido: ${unavailableItems.slice(0, 2).join(', ')} ${unavailableItems.length > 2 ? `y ${unavailableItems.length - 2} más ` : ''}se encuentran actualmente agotados.`, 
-        'Stock No Disponible'
-      );
+    // Precio vigente de cada artículo: los cambios de precio del catálogo o de los
+    // ingredientes se reflejan; los extras conservan el valor con que se pidieron.
+    const oldUnit = (item: Order['items'][number]) => Number(item.finalPrice) || Number(item.price) || Number(item.basePrice) || 0;
+    const newUnits: number[] = order.items.map((item) => {
+      const prev = oldUnit(item);
+      if (item.isCustom) {
+        const stack = item.stack || item.extras || [];
+        if (stack.length === 0) return prev;
+        let sum = 0;
+        for (const ing of stack) {
+          const cur = syncedIngredients.find(si => si.id === ing.id || (si.name || '').toLowerCase() === (ing.name || '').toLowerCase());
+          if (!cur) return prev;
+          sum += cur.price || 0;
+        }
+        return sum;
+      }
+      const cat = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+      if (!cat || item.basePrice === undefined) return prev;
+      return prev + (cat.price - Number(item.basePrice));
+    });
+    const oldShipping = Number(order.shipping) || 0;
+    const shippingChanged = order.shipping !== undefined && oldShipping !== FLAT_SHIPPING_RATE;
+    const priceChanged = order.items.some((it, i) => statuses[i] && !statuses[i].discontinued && newUnits[i] !== oldUnit(it));
+
+    const orderableCount = statuses.filter(st => !st.discontinued).length;
+    if (orderableCount === 0) {
+      showToast('warning', 'Los productos de tu último pedido ya no están disponibles en el menú.', 'Producto descontinuado');
       return;
     }
-    
+    const hasShortage = statuses.some(st => !st.discontinued && st.missing.length > 0);
+    const hasDiscontinued = statuses.some(st => st.discontinued);
+    const hasWarnings = hasShortage || hasDiscontinued || priceChanged || shippingChanged;
+
     setConfirmModal({
       isOpen: true,
       title: 'Repetir Pedido Anterior',
-      message: `¿Deseas duplicar los ${order.items.length} artículos del pedido ${order.id} y añadirlos a tu carrito actual?`,
-      confirmText: 'Sí, agregar al carrito',
+      message: hasWarnings
+        ? `El pedido ${orderCode(order.id)} ya no es igual al de la última vez (agotados, precios o domicilio). Revisa los detalles; puedes pedirlo de todas formas.`
+        : `¿Deseas duplicar los ${order.items.length} artículos del pedido ${orderCode(order.id)} y añadirlos a tu carrito actual?`,
+      details: (
+        <div className="space-y-3">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{formatOrderDate(order)}</p>
+          {order.items.map((item, idx) => {
+            const qty = item.quantity || 1;
+            const unit = Number(item.finalPrice) || Number(item.price) || Number(item.basePrice) || 0;
+            const nameOf = (r: NamedRef | string) => (typeof r === 'string' ? r : r?.name) || '';
+            const layers = (item.stack || item.extras || []).map(nameOf).filter(Boolean);
+            const removed = (item.removed || []).map(nameOf).filter(Boolean);
+            const catProduct = item.isCustom ? undefined : catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+            const image = item.product?.image || catProduct?.image;
+            const recipe = (catProduct?.ingredients || item.product?.ingredients || [])
+              .map(ing => (typeof ing === 'string' ? ing : ing.name || ''))
+              .filter(n => n && !removed.some(r => r.toLowerCase() === n.toLowerCase()));
+            const extras = item.isCustom ? [] : (item.extras || []).map(nameOf).filter(Boolean);
+            const mods = item.modifications || [];
+            return (
+              <div key={idx} className="rounded-2xl bg-gray-50 dark:bg-stone-900/60 border border-gray-100 dark:border-stone-800 overflow-hidden">
+                {image && <img src={image} alt={item.name} className="w-full h-36 object-cover" />}
+                <div className="p-3 space-y-2">
+                  {statuses[idx]?.discontinued && (
+                    <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Este producto ya no se vende. No se agregará al carrito.</p>
+                  )}
+                  {!statuses[idx]?.discontinued && (statuses[idx]?.missing.length ?? 0) > 0 && (
+                    <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Agotado por ahora: {statuses[idx].missing.join(', ')}</p>
+                  )}
+                  <div className="flex justify-between gap-3">
+                    <p className="font-bold text-sm text-gray-900 dark:text-white">{qty}x {item.name || 'Producto'}</p>
+                    <p className="font-black text-sm text-brand-orange whitespace-nowrap text-right">
+                      {!statuses[idx]?.discontinued && newUnits[idx] !== oldUnit(item) && (
+                        <span className="block text-[11px] font-semibold text-gray-400 line-through">{formatCOP(unit * qty)}</span>
+                      )}
+                      {formatCOP((statuses[idx]?.discontinued ? unit : newUnits[idx]) * qty)}
+                    </p>
+                  </div>
+                  {item.isCustom && layers.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Armada con</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {layers.map((n, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 text-[11px] font-semibold pr-2 rounded-lg bg-white dark:bg-stone-800 border border-gray-200 dark:border-stone-700 text-gray-700 dark:text-stone-200">
+                            <IngredientThumb name={n} size={20} className="!rounded-md !border-0" />{n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {recipe.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Lleva</p>
+                      <p className="text-xs text-gray-600 dark:text-stone-400">{recipe.join(', ')}</p>
+                    </div>
+                  )}
+                  {(removed.length > 0 || extras.length > 0) && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {removed.map((n, i) => (
+                        <span key={`r${i}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800/40">✕ SIN {n}</span>
+                      ))}
+                      {extras.map((n, i) => (
+                        <span key={`e${i}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">+ EXTRA {n}</span>
+                      ))}
+                    </div>
+                  )}
+                  {mods.length > 0 && <p className="text-xs text-gray-500 dark:text-stone-400">{mods.join(' · ')}</p>}
+                </div>
+              </div>
+            );
+          })}
+          <div className="pt-2 border-t border-gray-100 dark:border-stone-800 text-sm space-y-1.5">
+            <div className="flex justify-between">
+              <span className="font-medium text-gray-500">Domicilio</span>
+              <span className="font-bold text-gray-900 dark:text-white">
+                {shippingChanged && <span className="text-[11px] font-semibold text-gray-400 line-through mr-2">{formatCOP(oldShipping)}</span>}
+                {formatCOP(FLAT_SHIPPING_RATE)}
+              </span>
+            </div>
+            {shippingChanged && (
+              <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                La tarifa de domicilio cambió {FLAT_SHIPPING_RATE > oldShipping ? 'y ahora es mayor' : 'y ahora es menor'} que la de tu último pedido.
+              </p>
+            )}
+            <div className="flex justify-between">
+              <span className="font-medium text-gray-500">Total de ese pedido</span>
+              <span className="font-bold text-gray-500">{formatCOP(order.total)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-bold text-gray-900 dark:text-white">Total hoy</span>
+              <span className="font-black text-brand-orange">
+                {formatCOP(order.items.reduce((acc, it, i) => acc + (statuses[i].discontinued ? 0 : newUnits[i] * (it.quantity || 1)), 0) + FLAT_SHIPPING_RATE)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ),
+      confirmText: hasWarnings ? 'Pedir de todas formas' : 'Sí, agregar al carrito',
       cancelText: 'Cancelar',
-      type: 'info',
+      type: hasWarnings ? 'warning' : 'info',
       onConfirm: () => {
         // Clonación de la orden histórica al carrito actual con precios actualizados
-        const clonedItems = order.items.map((i) => ({
+        const clonedItems = order.items.filter((_, idx) => !statuses[idx].discontinued).map((i) => ({
           ...i,
           id: Math.random().toString(36).substr(2, 9),
-          finalPrice: Number(i.finalPrice) || Number(i.price) || Number(i.basePrice) || 0
+          finalPrice: newUnits[order.items.indexOf(i)] || oldUnit(i)
         }));
         setCart([...cart, ...clonedItems] as CartItem[]);
         showToast('cart', '¡Pedido duplicado y listo en tu carrito!', 'Recompra en 1-Clic');
@@ -740,49 +867,71 @@ export default function ClientDashboard() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-[#151515] w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl p-8"
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-[#151515] w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl relative"
             >
-              <h3 className="font-bold text-2xl text-center mb-6 text-gray-900 dark:text-white">Califica tu Experiencia</h3>
-              
-              <div className="flex justify-center gap-2 mb-6">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button 
-                    key={star} 
-                    onMouseEnter={() => setReviewHoverRating(star)}
-                    onMouseLeave={() => setReviewHoverRating(0)}
-                    onClick={() => setReviewRating(star)}
-                    className="hover:scale-110 transition-transform focus:outline-none"
-                  >
-                    <Star 
-                      className={`w-10 h-10 transition-colors ${(reviewHoverRating || reviewRating) >= star ? 'text-brand-orange fill-current' : 'text-gray-300 dark:text-stone-600'}`} 
-                    />
-                  </button>
-                ))}
+              <button
+                onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
+                className="absolute top-5 right-5 w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:hover:bg-stone-700 flex items-center justify-center text-gray-500 dark:text-stone-400 transition-colors z-10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="pt-9 pb-6 px-8 text-center bg-gradient-to-b from-brand-orange/10 to-transparent">
+                <div className="w-16 h-16 rounded-3xl bg-brand-orange text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
+                  <Sparkles className="w-7 h-7" />
+                </div>
+                <h3 className="font-black text-2xl text-gray-900 dark:text-white">Califica tu Experiencia</h3>
+                <p className="text-sm text-gray-500 dark:text-stone-400 mt-1">Tu opinión nos ayuda a mejorar cada pedido.</p>
               </div>
 
-              <textarea 
-                placeholder="Opcional: Escribe una breve reseña (ej. ¡La hamburguesa estaba deliciosa!)"
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-                className="w-full bg-gray-50 dark:bg-stone-900 border border-gray-200 dark:border-stone-800 rounded-xl p-4 text-sm text-gray-900 dark:text-white h-24 mb-6 resize-none focus:outline-none focus:border-brand-orange"
-              />
+              <div className="px-8 pb-8">
+                <div className="flex justify-center gap-2 mb-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onMouseEnter={() => setReviewHoverRating(star)}
+                      onMouseLeave={() => setReviewHoverRating(0)}
+                      onClick={() => setReviewRating(star)}
+                      className="hover:scale-110 transition-transform focus:outline-none cursor-pointer"
+                    >
+                      <Star
+                        className={`w-10 h-10 transition-colors ${(reviewHoverRating || reviewRating) >= star ? 'text-brand-orange fill-current' : 'text-gray-300 dark:text-stone-600'}`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-center text-xs font-bold uppercase tracking-wider mb-6 h-4 text-brand-orange">
+                  {{1:'Malo', 2:'Regular', 3:'Bueno', 4:'Muy Bueno', 5:'¡Excelente!'}[reviewHoverRating || reviewRating] || ''}
+                </p>
 
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-500 bg-gray-100 dark:bg-stone-800 dark:text-stone-400"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleReviewSubmit}
-                  disabled={reviewRating === 0}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange disabled:opacity-50 transition-opacity"
-                >
-                  Enviar
-                </button>
+                <label className="block text-xs font-bold text-gray-500 dark:text-stone-400 uppercase tracking-wider mb-2">
+                  Reseña (opcional)
+                </label>
+                <textarea
+                  placeholder="Ej. ¡La hamburguesa estaba deliciosa!"
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  className="w-full bg-gray-50 dark:bg-stone-900 border border-gray-200 dark:border-stone-800 rounded-2xl p-4 text-sm text-gray-900 dark:text-white h-24 mb-6 resize-none focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all"
+                />
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
+                    className="flex-1 px-4 py-3.5 rounded-2xl font-bold text-gray-600 bg-gray-100 dark:bg-stone-800 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleReviewSubmit}
+                    disabled={reviewRating === 0}
+                    className="flex-1 px-4 py-3.5 rounded-2xl font-bold text-white bg-brand-orange hover:bg-[#e66500] shadow-md shadow-brand-orange/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all cursor-pointer"
+                  >
+                    Enviar
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -805,66 +954,84 @@ export default function ClientDashboard() {
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
             onClick={() => setSelectedOrderInfo(null)}
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white dark:bg-[#151515] w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl p-8 max-h-[90vh] overflow-y-auto"
+              className="bg-white dark:bg-[#18181b] w-full max-w-lg rounded-[28px] overflow-hidden shadow-2xl border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-2xl text-gray-900 dark:text-white">Detalles del Pedido</h3>
-                <button onClick={() => setSelectedOrderInfo(null)} className="text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
-              </div>
-
-              <div className="space-y-6">
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-1">ID del Pedido</p>
-                  <p className="font-bold text-gray-900 dark:text-white text-lg">{liveOrder.id}</p>
-                </div>
-
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-2">Información del Repartidor</p>
-                  {liveOrder.status === 'En Camino' || liveOrder.status === 'Entregado' || liveOrder.status === 'entregado' ? (
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gray-200 dark:bg-stone-800 rounded-full flex items-center justify-center">
-                        <Star className="w-6 h-6 text-gray-400" />
-                      </div>
-                      <div>
-                        <p className="font-bold text-gray-900 dark:text-white">{liveOrder.driverName || 'Repartidor Asignado'}</p>
-                        <p className="text-sm text-gray-500">{liveOrder.status}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="font-bold text-gray-900 dark:text-white">Aún no se ha asignado un repartidor.</p>
-                  )}
-                </div>
-
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-2">Resumen de Pago</p>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm font-medium">
-                      <span className="text-gray-600 dark:text-stone-400">Método de Pago</span>
-                      <span className="text-gray-900 dark:text-white">{liveOrder.paymentMethod === 'cash' ? 'Efectivo' : liveOrder.paymentMethod === 'nequi' ? 'Nequi' : liveOrder.paymentMethod === 'bancolombia' ? 'Bancolombia' : liveOrder.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-medium">
-                      <span className="text-gray-600 dark:text-stone-400">Estado de Pago</span>
-                      <span className="text-green-600 uppercase tracking-wider">{liveOrder.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
-                    </div>
-                    <div className="border-t border-gray-200 dark:border-stone-800 my-2 pt-2 flex justify-between font-bold text-lg">
-                      <span className="text-gray-900 dark:text-white">Total</span>
-                      <span className="text-brand-orange">{formatCOP(liveOrder.total)}</span>
+              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between bg-gray-50/50 dark:bg-stone-900/40 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Detalles del Pedido</h3>
+                      <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-orange text-white">
+                        {orderCode(liveOrder.id)}
+                      </span>
                     </div>
                   </div>
                 </div>
+                <button onClick={() => setSelectedOrderInfo(null)} className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:hover:bg-stone-700 flex items-center justify-center text-gray-500 dark:text-stone-400 transition-colors shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-3">Productos</p>
-                  <div className="space-y-3">
+              <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">Repartidor</span>
+                  {liveOrder.status === 'En Camino' || liveOrder.status === 'Entregado' ? (
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-sm shrink-0">
+                        {(liveOrder.driverName || 'RA').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{liveOrder.driverName || 'Repartidor Asignado'}</p>
+                        <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{liveOrder.status}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-gray-200 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-semibold text-gray-500 dark:text-stone-400">Aún no se ha asignado un repartidor.</p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                    Productos ({liveOrder.items.length})
+                  </h4>
+                  <div className="space-y-2.5">
                     {liveOrder.items.map((item, idx: number) => (
-                      <div key={item.id || idx} className="flex justify-between text-sm font-medium">
-                        <span className="text-gray-900 dark:text-white">{item.quantity}x {item.name}</span>
-                        <span className="text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
+                      <div key={item.id || idx} className="bg-white dark:bg-stone-900 p-3.5 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-2.5 min-w-0 text-sm font-bold text-gray-900 dark:text-white">
+                          <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-stone-800 text-gray-700 dark:text-stone-300 font-black text-xs flex items-center justify-center shrink-0">{item.quantity}x</span>
+                          <span className="truncate">{item.name}</span>
+                        </span>
+                        <span className="font-bold text-gray-900 dark:text-white text-sm shrink-0">{formatCOP(item.finalPrice)}</span>
                       </div>
                     ))}
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80 space-y-2.5">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5" /> Método de Pago
+                    </span>
+                    <span className="font-bold text-gray-800 dark:text-stone-200">{liveOrder.paymentMethod === 'cash' ? 'Efectivo' : liveOrder.paymentMethod === 'nequi' ? 'Nequi' : liveOrder.paymentMethod === 'bancolombia' ? 'Bancolombia' : liveOrder.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 dark:text-stone-400 font-medium">Estado de Pago</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{liveOrder.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
+                  </div>
+                  <div className="pt-2.5 mt-1 border-t border-dashed border-gray-200 dark:border-stone-700 flex justify-between items-center text-lg font-black text-gray-900 dark:text-white">
+                    <span>Total</span>
+                    <span className="text-brand-orange">{formatCOP(liveOrder.total)}</span>
                   </div>
                 </div>
               </div>
@@ -1026,8 +1193,8 @@ export default function ClientDashboard() {
           </div>
         </header>
         
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 min-w-0">
-          <div className="max-w-[1600px] mx-auto w-full">
+        <div className={`flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 min-w-0 ${activeTab === 'builder' ? 'lg:overflow-hidden lg:py-6' : ''}`}>
+          <div className={`max-w-[1600px] mx-auto w-full ${activeTab === 'builder' ? 'lg:h-full' : ''}`}>
             {activeTab === 'catalog' && (
               <CatalogSection
                 catalog={catalog}
@@ -1177,31 +1344,49 @@ export default function ClientDashboard() {
         {selectedProduct && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setSelectedProduct(null)} className="absolute inset-0 bg-stone-900/60 dark:bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{opacity:0, scale:0.95, y:20}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.95, y:20}} className="relative bg-white dark:bg-[#151515] rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden border border-gray-100 dark:border-stone-800">
-              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex justify-between items-center bg-gray-50/50 dark:bg-stone-800/20">
-                <div>
-                  <h3 className="font-black text-2xl">{selectedProduct.name}</h3>
+            <motion.div initial={{opacity:0, scale:0.95, y:20}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.95, y:20}} onClick={e => e.stopPropagation()} className="relative bg-white dark:bg-[#151515] rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]">
+              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between gap-4 bg-gray-50/50 dark:bg-stone-800/20 shrink-0">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {selectedProduct.image ? (
+                    <img src={selectedProduct.image} alt={selectedProduct.name} className="w-14 h-14 rounded-2xl object-cover shrink-0 border border-gray-200 dark:border-stone-700" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-2xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                      <ShoppingBag className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <h3 className="font-black text-xl text-gray-900 dark:text-white truncate">{selectedProduct.name}</h3>
+                    <p className="text-sm font-bold text-brand-orange mt-0.5">{formatCOP(selectedProduct.price)}</p>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedProduct(null)} className="p-3 hover:bg-gray-200 dark:hover:bg-stone-800 rounded-full transition-colors bg-black/5 dark:bg-white/5"><X className="w-5 h-5"/></button>
+                <button onClick={() => setSelectedProduct(null)} className="w-10 h-10 shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-stone-800 flex items-center justify-center transition-colors bg-black/5 dark:bg-white/5 cursor-pointer"><X className="w-5 h-5"/></button>
               </div>
-                
-              <div className="p-6 space-y-8 max-h-[60vh] overflow-y-auto">
+
+              <div className="p-6 space-y-8 overflow-y-auto flex-1">
                 {/* HU-08.1: Exclusión (SIN) */}
-                <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 dark:text-white uppercase tracking-wider text-sm flex items-center gap-2"><Minus className="w-4 h-4"/> Retirar Ingredientes</h4>
+                <div className="space-y-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-500 flex items-center justify-center shrink-0">
+                      <Minus className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-black text-gray-900 dark:text-white uppercase tracking-wider text-sm">Retirar Ingredientes</h4>
+                  </div>
                   {selectedProduct.ingredients && selectedProduct.ingredients.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {selectedProduct.ingredients.map((ing) => {
                         const isRemoved = customRemoved.find(r => r.id === ing.id);
                         return (
-                          <div key={ing.id} className="flex items-center justify-between p-4 border border-gray-100 dark:border-stone-800 rounded-[20px] bg-white dark:bg-[#151515] shadow-sm">
-                            <span className={`font-medium ${isRemoved ? 'line-through text-gray-400' : 'text-gray-700 dark:text-stone-300'}`}>{ing.name}</span>
-                            <button 
+                          <div key={ing.id} className="flex items-center justify-between p-3.5 border border-gray-100 dark:border-stone-800 rounded-2xl bg-gray-50/60 dark:bg-stone-900/40">
+                            <span className={`flex items-center gap-3 font-semibold text-sm ${isRemoved ? 'line-through text-gray-400' : 'text-gray-700 dark:text-stone-300'}`}>
+                              <IngredientThumb name={ing.name} image={syncedIngredients.find(si => si.id === ing.id)?.image} size={40} className={isRemoved ? 'grayscale opacity-60' : ''} />
+                              {ing.name}
+                            </span>
+                            <button
                               onClick={() => {
                                 if (isRemoved) setCustomRemoved(customRemoved.filter(r => r.id !== ing.id));
                                 else setCustomRemoved([...customRemoved, ing]);
                               }}
-                              className={`px-4 py-2 text-sm rounded-[20px] font-bold transition-colors ${isRemoved ? 'bg-black/5 dark:bg-white/5 text-gray-600 dark:text-stone-300 hover:bg-black/5 dark:hover:bg-white/10' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
+                              className={`px-3.5 py-1.5 text-xs rounded-xl font-bold transition-colors cursor-pointer ${isRemoved ? 'bg-gray-200 dark:bg-stone-700 text-gray-600 dark:text-stone-300 hover:bg-gray-300 dark:hover:bg-stone-600' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
                             >
                               {isRemoved ? 'Revertir' : 'Quitar (Sin)'}
                             </button>
@@ -1210,36 +1395,50 @@ export default function ClientDashboard() {
                       })}
                     </div>
                   ) : (
-                    <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02]/50 rounded-[20px] border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">Este producto base no tiene restricciones.</div>
+                    <div className="p-4 bg-gray-50/60 dark:bg-stone-900/40 rounded-2xl border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">Este producto base no tiene restricciones.</div>
                   )}
                 </div>
 
-                {/* HU-08.2: Adición (EXTRA) sincronizada con inventario */}
-                <div className="space-y-4 pt-4">
-                  <h4 className="font-bold text-gray-900 dark:text-white uppercase tracking-wider text-sm flex items-center gap-2"><Plus className="w-4 h-4"/> Añadir Extras</h4>
-                  {syncedIngredients.filter(i => i.category === 'extra' || i.category === 'carnes' || i.category === 'lacteos' || i.category === 'embutidos').length > 0 ? (
-                    <div className="space-y-3">
-                      {syncedIngredients.filter(i => i.category === 'extra' || i.category === 'carnes' || i.category === 'lacteos' || i.category === 'embutidos').map(extra => {
+                {/* HU-08.2: Adición (EXTRA) sincronizada con inventario -- cualquier
+                    ingrediente del catálogo que no forme ya parte de la receta base
+                    del producto puede añadirse como extra. Antes se filtraba por un
+                    nombre de categoría fijo en minúscula ('carnes', 'lacteos'...)
+                    que nunca coincidía con las categorías reales tal como las
+                    escribe el admin en Inventario ("Carnes & Proteínas", "Quesos &
+                    Lácteos"...), así que la lista de extras siempre salía vacía. */}
+                <div className="space-y-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 flex items-center justify-center shrink-0">
+                      <Plus className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-black text-gray-900 dark:text-white uppercase tracking-wider text-sm">Añadir Extras</h4>
+                  </div>
+                  {syncedIngredients.filter(i => !selectedProduct.ingredients?.some(base => base.id === i.id)).length > 0 ? (
+                    <div className="space-y-2.5">
+                      {syncedIngredients.filter(i => !selectedProduct.ingredients?.some(base => base.id === i.id)).map(extra => {
                         const isAdded = customExtras.find(e => e.id === extra.id);
                         const isOutOfStock = extra.stock !== undefined && extra.stock <= 0;
                         return (
-                          <div key={extra.id} className={`flex items-center justify-between p-4 border border-gray-100 dark:border-stone-800 rounded-[20px] bg-white dark:bg-[#151515] shadow-sm ${isOutOfStock ? 'opacity-50' : ''}`}>
-                            <div>
+                          <div key={extra.id} className={`flex items-center justify-between p-3.5 border border-gray-100 dark:border-stone-800 rounded-2xl bg-gray-50/60 dark:bg-stone-900/40 ${isOutOfStock ? 'opacity-50' : ''}`}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <IngredientThumb name={extra.name} image={extra.image} size={48} />
+                              <div>
                               <div className="flex items-center gap-2">
-                                <p className="font-bold text-gray-800 dark:text-stone-200">{extra.name}</p>
+                                <p className="font-bold text-sm text-gray-800 dark:text-stone-200">{extra.name}</p>
                                 {isOutOfStock && (
                                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400">AGOTADO</span>
                                 )}
                               </div>
                               <p className="text-sm font-black text-brand-orange mt-0.5">+{formatCOP(extra.price)}</p>
+                              </div>
                             </div>
-                            <button 
+                            <button
                               disabled={isOutOfStock && !isAdded}
                               onClick={() => {
                                 if (isAdded) setCustomExtras(customExtras.filter(e => e.id !== extra.id));
                                 else setCustomExtras([...customExtras, extra]);
                               }}
-                              className={`px-4 py-2 text-sm rounded-[20px] font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isAdded ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-md hover:bg-gray-800 dark:hover:bg-gray-100'}`}
+                              className={`px-3.5 py-1.5 text-xs rounded-xl font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${isAdded ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100'}`}
                             >
                               {isAdded ? 'Quitar' : isOutOfStock ? 'Agotado' : 'Añadir Extra'}
                             </button>
@@ -1248,16 +1447,16 @@ export default function ClientDashboard() {
                       })}
                     </div>
                   ) : (
-                    <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02]/50 rounded-[20px] border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">No hay extras en inventario actualmente.</div>
+                    <div className="p-4 bg-gray-50/60 dark:bg-stone-900/40 rounded-2xl border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">No hay extras disponibles en inventario actualmente.</div>
                   )}
                 </div>
 
               </div>
-                
-              <div className="p-6 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-[#151515]">
-                <button 
+
+              <div className="p-6 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-[#151515] shrink-0">
+                <button
                   onClick={addToCartFromCatalog}
-                  className="w-full bg-brand-orange text-white py-4 rounded-[20px] font-black text-lg hover:bg-brand-orange/90 flex justify-between px-8 shadow-xl shadow-brand-orange/20 transition-all active:scale-[0.98]"
+                  className="w-full bg-brand-orange text-white py-4 rounded-[20px] font-black text-lg hover:bg-[#e66500] flex justify-between px-8 shadow-xl shadow-brand-orange/20 transition-all active:scale-[0.98] cursor-pointer"
                 >
                   <span>{editingCartItemId ? 'Actualizar Pedido' : 'Confirmar Selección'}</span>
                   <span>{formatCOP(selectedProduct.price + customExtras.reduce((s, e) => s + (e.price || 2000), 0))}</span>
@@ -1329,6 +1528,7 @@ export default function ClientDashboard() {
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
         message={confirmModal.message}
+        details={confirmModal.details}
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
         type={confirmModal.type}

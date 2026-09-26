@@ -189,6 +189,7 @@ CREATE TABLE INGREDIENTE (
     precio_extra   DECIMAL(10,2) NOT NULL DEFAULT 0,
     proveedor      VARCHAR(150),
     notas          VARCHAR(500),
+    imagen         VARCHAR(255) NULL,           -- URL de la foto real del ingrediente (public/uploads/productos)
     activo         BOOLEAN      NOT NULL DEFAULT TRUE,  -- soft delete (regla 10): un DELETE fisico
                                                          -- falla si el insumo tiene movimientos o receta
     creado_en      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

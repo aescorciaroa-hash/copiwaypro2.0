@@ -1,7 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, CheckCircle2, FileText, MapPin, RotateCcw, Search, ShoppingBag, Sparkles, Star, Truck, Wallet, X } from 'lucide-react';
+import { Calendar, CheckCircle2, FileText, MapPin, RotateCcw, Search, ShoppingBag, Sparkles, Star, Truck, User, Wallet, X } from 'lucide-react';
 
-import { formatCOP } from '../../lib/format';
+import { formatCOP, orderCode, vehicleWithModel } from '../../lib/format';
 import { Order, StoreConfig } from '../../store/almacenAplicacion';
 import { UserProfileState } from '../ClientDashboard';
 
@@ -185,7 +185,7 @@ export default function HistorySection({
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
                       <span className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
-                        {order.id}
+                        {orderCode(order.id)}
                       </span>
                       <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1 border border-emerald-200 dark:border-emerald-800/40">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Entregado
@@ -303,7 +303,7 @@ export default function HistorySection({
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-brand-orange uppercase tracking-wider">
-                          ⭐ ¿Cómo estuvo tu pedido {order.id}?
+                          ⭐ ¿Cómo estuvo tu pedido {orderCode(order.id)}?
                         </span>
                         <button
                           onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); setReviewTags([]); }}
@@ -477,7 +477,7 @@ export default function HistorySection({
                         Detalle del Pedido
                       </h3>
                       <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-orange text-white">
-                        {viewingReceiptOrder.id}
+                        {orderCode(viewingReceiptOrder.id)}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
@@ -501,14 +501,16 @@ export default function HistorySection({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Estado del Pedido</span>
                     <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                      (viewingReceiptOrder.status as string) === 'delivered' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
-                      (viewingReceiptOrder.status as string) === 'on_way' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
-                      (viewingReceiptOrder.status as string) === 'in_prep' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
+                      viewingReceiptOrder.status === 'Entregado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                      viewingReceiptOrder.status === 'En Camino' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
+                      viewingReceiptOrder.status === 'En Preparación' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
+                      (viewingReceiptOrder.status as string) === 'Listos' || (viewingReceiptOrder.status as string) === 'Listo para Entregar' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400' :
                       'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400'
                     }`}>
-                      {(viewingReceiptOrder.status as string) === 'delivered' ? '✓ Entregado' :
-                       (viewingReceiptOrder.status as string) === 'on_way' ? '🛵 En camino' :
-                       (viewingReceiptOrder.status as string) === 'in_prep' ? '👨‍🍳 En preparación' :
+                      {viewingReceiptOrder.status === 'Entregado' ? '✓ Entregado' :
+                       viewingReceiptOrder.status === 'En Camino' ? '🛵 En camino' :
+                       viewingReceiptOrder.status === 'En Preparación' ? '👨‍🍳 En preparación' :
+                       (viewingReceiptOrder.status as string) === 'Listos' || (viewingReceiptOrder.status as string) === 'Listo para Entregar' ? '📦 Listo' :
                        '📋 Recibido'}
                     </span>
                   </div>
@@ -535,6 +537,34 @@ export default function HistorySection({
                     </div>
                   </div>
                 </div>
+
+                {/* Repartidor: solo informacion (nombre, vehiculo, estado) -- sin
+                    telefono ni WhatsApp, ese contacto es exclusivo del panel admin. */}
+                {(viewingReceiptOrder.driverName || viewingReceiptOrder.status === 'En Camino' || viewingReceiptOrder.status === 'Entregado') && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 rounded-2xl p-4 border border-gray-100 dark:border-stone-800/80">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">Repartidor</span>
+                    {viewingReceiptOrder.driverName ? (
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-sm shrink-0">
+                          {viewingReceiptOrder.driverName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{viewingReceiptOrder.driverName}</p>
+                          <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
+                            {vehicleWithModel(viewingReceiptOrder.driverVehicle) || 'En camino con tu pedido'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-200 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <p className="text-sm font-semibold text-gray-500 dark:text-stone-400">Aún no se ha asignado un repartidor.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Items List */}
                 <div>

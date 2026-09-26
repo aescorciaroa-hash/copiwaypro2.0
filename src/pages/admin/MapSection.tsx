@@ -19,7 +19,7 @@ interface MapSectionProps {
   handleNavigateToOrders: (orderId?: string) => void;
   setEditingAddressOrder: (order: Order | null) => void;
   setNewAddress: (address: string) => void;
-  handleOpenStaffModal: (emp: Staff) => void;
+  handleOpenStaffModal: (emp: Staff, readOnly?: boolean) => void;
 }
 
 export default function MapSection({
@@ -288,7 +288,7 @@ export default function MapSection({
                         <Popup>
                           <div className="p-1 space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="font-black text-gray-900 text-xs">{ord.id}</span>
+                              <span className="font-black text-gray-900 text-xs">{String(ord.id).replace(/^#/, '')}</span>
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                                 isEnCamino ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
                               }`}>
@@ -369,7 +369,7 @@ export default function MapSection({
                       {assignedOrder ? (
                         <div className="mt-2 p-2 rounded-xl bg-white dark:bg-stone-800 border border-gray-100 dark:border-stone-700 text-xs">
                           <p className="font-semibold text-gray-800 dark:text-stone-200 truncate">
-                            Llevando: {assignedOrder.id} • {assignedOrder.client}
+                            Llevando: {String(assignedOrder.id).replace(/^#/, '')} • {assignedOrder.client}
                           </p>
                           <p className="text-[11px] text-gray-500 dark:text-stone-400 truncate mt-0.5 flex items-center gap-1">
                             <MapPin className="w-3 h-3 text-brand-orange shrink-0" />
@@ -435,7 +435,7 @@ export default function MapSection({
                   >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-black text-gray-900 dark:text-white">{ord.id}</span>
+                        <span className="font-black text-gray-900 dark:text-white">{String(ord.id).replace(/^#/, '')}</span>
                         <span className="font-bold text-brand-orange">{formatCOP(ord.total || 0)}</span>
                       </div>
                       <p className="font-medium text-gray-700 dark:text-stone-300 truncate mt-0.5">{ord.client || 'Cliente'}</p>
@@ -511,7 +511,7 @@ export default function MapSection({
                 ) : drivers.map(driver => (
                   <div
                     key={driver.id}
-                    onClick={() => { setShowDriversModal(false); handleOpenStaffModal(driver); }}
+                    onClick={() => { setShowDriversModal(false); handleOpenStaffModal(driver, true); }}
                     className="flex items-center gap-4 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 hover:bg-gray-50 dark:hover:bg-stone-900/40 transition-colors cursor-pointer"
                   >
                     <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold flex items-center justify-center text-sm shrink-0">

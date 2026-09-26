@@ -9,7 +9,7 @@ import { useStore, Order } from '../store/almacenAplicacion';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { formatCOP, vehicleWithModel } from '../lib/format';
+import { formatCOP, orderCode, vehicleWithModel } from '../lib/format';
 import { api, ApiError, irA } from '../servicios/api';
 
 const RoutePolyline = ({ origin, destination, outerColor, innerColor, onRouteLoaded }: { origin: [number, number], destination: [number, number], outerColor: string, innerColor: string, onRouteLoaded?: (coords: [number, number][]) => void }) => {
@@ -664,7 +664,7 @@ export default function DeliveryDashboard() {
                   )}
                   <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
                     <div className="min-w-0">
-                      <h3 className="font-black text-lg whitespace-nowrap">{order.id}</h3>
+                      <h3 className="font-black text-lg whitespace-nowrap">{orderCode(order.id)}</h3>
                       <p className="text-xs font-bold bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded text-gray-600 dark:text-stone-300 mt-1 inline-block truncate max-w-full whitespace-nowrap">
                         {order.status === 'Listos' ? (isAccepted ? 'Recepcionado' : 'Listo para recoger') : order.status}
                       </p>
@@ -704,7 +704,7 @@ export default function DeliveryDashboard() {
                         onClick={(e) => { 
                           e.stopPropagation(); 
                           const phone = (order.clientPhone || '').replace(/\D/g, '');
-                          const message = encodeURIComponent(`¡Hola! Soy el domiciliario de Copiway PRO. Voy en camino con tu pedido ${order.id}. ¿Me podrías dar indicaciones exactas para llegar o confirmar si estás disponible?`);
+                          const message = encodeURIComponent(`¡Hola! Soy el domiciliario de Copiway PRO. Voy en camino con tu pedido ${orderCode(order.id)}. ¿Me podrías dar indicaciones exactas para llegar o confirmar si estás disponible?`);
                           window.open(`https://wa.me/${phone}?text=${message}`, '_blank'); 
                         }}
                         className="w-full border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 py-2.5 rounded-[12px] text-sm font-bold flex items-center justify-center gap-2 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"

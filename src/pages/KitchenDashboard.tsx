@@ -7,6 +7,7 @@ import { ArrowLeft,
  } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useStore, Order } from '../store/almacenAplicacion';
+import { orderCode } from '../lib/format';
 import { soundFx } from '../utils/audio';
 import { api, ApiError, irA } from '../servicios/api';
 
@@ -623,7 +624,7 @@ export default function KitchenDashboard() {
 
                 <div className="border-t border-dashed border-gray-400 py-3 space-y-1">
                   <div className="flex justify-between">
-                    <span>TICKET: <span className="font-bold">#{previewOrder.id}</span></span>
+                    <span>TICKET: <span className="font-bold">{orderCode(previewOrder.id)}</span></span>
                     <span>{new Date(previewOrder.date || Date.now()).toLocaleDateString()}</span>
                   </div>
                   <div className="flex justify-between">
@@ -705,7 +706,7 @@ export default function KitchenDashboard() {
                     <div className="w-1 h-full bg-current mx-[1px]"></div>
                     <div className="w-3 h-full bg-current mx-[1px]"></div>
                   </div>
-                  <p className="text-[10px] tracking-[0.3em] mt-1 font-mono">{previewOrder.id}</p>
+                  <p className="text-[10px] tracking-[0.3em] mt-1 font-mono">{orderCode(previewOrder.id)}</p>
                 </div>
               </div>
               <div className="p-6 bg-gray-50 dark:bg-stone-900/50 border-t border-gray-100 dark:border-stone-800 flex gap-4">
@@ -750,7 +751,7 @@ function OrderCard({ order, onMove, onPrint, isReady = false }: { order: Order, 
       
       <div className="flex flex-wrap justify-between items-start gap-3 mb-5">
         <div className="min-w-0">
-          <h3 className={`font-bold text-[18px] leading-none whitespace-nowrap shrink-0 ${isSlaBreached ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{order.id}</h3>
+          <h3 className={`font-bold text-[18px] leading-none whitespace-nowrap shrink-0 ${isSlaBreached ? 'text-red-700 dark:text-red-400' : 'text-gray-900 dark:text-white'}`}>{orderCode(order.id)}</h3>
           <p className={`text-[13px] font-medium mt-1.5 flex items-center gap-1.5 whitespace-nowrap ${isSlaBreached ? 'text-red-600 dark:text-red-400 font-bold' : 'text-gray-500'}`}>
             <svg className={isSlaBreached ? 'animate-bounce shrink-0' : 'shrink-0'} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
             <span className="truncate">{getRelativeTime()}</span>

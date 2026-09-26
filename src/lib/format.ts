@@ -1,3 +1,8 @@
+/** El backend siempre antepone "#" al id visible del pedido (#ORD-1); en toda
+ * la UI se muestra sin ese numeral -- solo se conserva internamente porque
+ * Pedido::porIdVisible lo usa para reconocer el formato. */
+export const orderCode = (id?: string | null): string => String(id ?? '').replace(/^#/, '');
+
 export const formatCOP = (amount: number) => {
   return new Intl.NumberFormat('es-CO', {
     style: 'currency',

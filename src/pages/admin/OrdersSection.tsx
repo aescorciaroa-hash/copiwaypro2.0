@@ -153,7 +153,7 @@ export default function OrdersSection({
                       <div className="flex justify-between items-start">
                         <div>
                           <p className="text-[11px] font-bold text-gray-500 dark:text-stone-400">Orden ID</p>
-                          <h3 className="font-black text-lg text-brand-orange">{order.id}</h3>
+                          <h3 className="font-black text-lg text-brand-orange">{String(order.id).replace(/^#/, '')}</h3>
                         </div>
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-black tracking-wider text-white ${color}`}>{statusText}</span>
                       </div>

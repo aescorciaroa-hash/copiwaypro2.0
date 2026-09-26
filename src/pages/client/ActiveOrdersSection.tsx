@@ -1,7 +1,7 @@
 import React from 'react';
 import { CheckCircle2, MessageCircle, Plus, ShoppingCart, Smartphone } from 'lucide-react';
 
-import { formatCOP } from '../../lib/format';
+import { formatCOP, orderCode } from '../../lib/format';
 import { Order } from '../../store/almacenAplicacion';
 
 interface ActiveOrdersSectionProps {
@@ -28,7 +28,7 @@ export default function ActiveOrdersSection({
               <div className="flex justify-between items-center mb-10">
                 <div>
                   <div className="flex items-center gap-3">
-    <h3 className="font-bold text-[clamp(16px,4vw,20px)] text-gray-900 dark:text-white">{order.id}</h3>
+    <h3 className="font-bold text-[clamp(16px,4vw,20px)] text-gray-900 dark:text-white">{orderCode(order.id)}</h3>
     <button onClick={(e) => { e.stopPropagation(); setSelectedOrderInfo(order); }} className="text-xs bg-brand-orange/10 text-brand-orange px-3 py-1.5 rounded-full font-bold hover:bg-brand-orange/20 transition-colors flex items-center gap-1"><ShoppingCart className="w-3 h-3" /> Detalles</button>
   </div>
                   <p className="text-[13px] text-gray-500 font-medium mt-1">Llegando en ~25 min</p>
@@ -101,7 +101,7 @@ export default function ActiveOrdersSection({
                       type="button"
                       onClick={() => {
                         const phone = (order.driverPhone || '3114567890').replace(/\D/g, '');
-                        const msg = encodeURIComponent(`¡Hola! Te escribo respecto a mi pedido de Hamburguer Copiway (${order.id}).`);
+                        const msg = encodeURIComponent(`¡Hola! Te escribo respecto a mi pedido de Hamburguer Copiway (${orderCode(order.id)}).`);
                         window.open(`https://wa.me/${phone}?text=${msg}`, '_blank');
                       }}
                       className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-brand-orange text-white font-bold text-xs hover:bg-[#e66500] shadow-sm flex items-center justify-center gap-2 transition-colors shrink-0"

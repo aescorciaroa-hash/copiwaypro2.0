@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-import { formatCOP } from '../../lib/format';
+import { formatCOP, orderCode } from '../../lib/format';
 import { Order, Staff, StoreConfig } from '../../store/almacenAplicacion';
 import { CustomSelect } from '../../components/CustomSelect';
 import { CustomTooltip } from '../AdminDashboard';
@@ -248,7 +248,7 @@ export default function OverviewSection({
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-xl bg-white dark:bg-stone-800 text-brand-orange flex items-center justify-center font-black text-xs shrink-0 shadow-sm border border-gray-100 dark:border-stone-700">
-                      {ord.id.replace(/[^0-9]/g, '').slice(-2) || '#'}
+                      {ord.id.replace(/[^0-9]/g, '').slice(-2) || orderCode(ord.id).slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0">
                       <p className="font-bold text-gray-900 dark:text-white text-sm truncate group-hover:text-brand-orange transition-colors">
@@ -413,7 +413,7 @@ export default function OverviewSection({
                     {orders.filter(o => o.status === 'En Camino').slice(0, 2).map((ord) => (
                       <div key={ord.id} className="flex items-center justify-between text-xs bg-white dark:bg-stone-800/80 px-2.5 py-1.5 rounded-xl border border-gray-100 dark:border-stone-700">
                         <span className="font-semibold text-gray-800 dark:text-stone-200 truncate max-w-[170px]">
-                          {ord.client || ord.id}: {ord.address}
+                          {ord.client || orderCode(ord.id)}: {ord.address}
                         </span>
                         <span className="text-[10px] font-bold text-brand-orange bg-orange-50 dark:bg-orange-950/40 px-2 py-0.5 rounded-md shrink-0">
                           En camino

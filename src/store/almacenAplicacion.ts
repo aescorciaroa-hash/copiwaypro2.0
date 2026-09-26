@@ -33,6 +33,7 @@ export interface InventoryItem {
   category?: string;
   supplier?: string;
   notes?: string;
+  image?: string;
   createdAt?: string;
 }
 export interface InventoryLog {
@@ -123,6 +124,7 @@ export interface Ingredient {
   price: number;
   category: string;
   stock?: number;
+  image?: string;
 }
 
 export interface Notification {

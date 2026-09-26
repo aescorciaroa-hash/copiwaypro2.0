@@ -1,7 +1,7 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Edit2, Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
+  Edit2, ImagePlus, Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
 } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
@@ -9,7 +9,7 @@ import { InventoryItem, InventoryLog } from '../../store/almacenAplicacion';
 import { ToastData } from '../../components/ToastNotification';
 import { CustomSelect } from '../../components/CustomSelect';
 import { ConfirmModalState } from '../AdminDashboard';
-import { ApiError } from '../../servicios/api';
+import { ApiError, subirArchivo } from '../../servicios/api';
 
 export interface NewInventoryItemState {
   name: string;
@@ -20,6 +20,7 @@ export interface NewInventoryItemState {
   category: string;
   supplier: string;
   notes: string;
+  image?: string;
 }
 
 interface InventorySectionProps {
@@ -65,7 +66,21 @@ export default function InventorySection({
 
     const emptyNewItem = {
       name: '', stock: '', totalCost: '', unitCost: '', unit: 'Unidades',
-      category: 'General', supplier: '', notes: ''
+      category: 'General', supplier: '', notes: '', image: ''
+    };
+
+    const [isUploadingImage, setIsUploadingImage] = React.useState(false);
+    const handleImageSelected = async (file: File) => {
+      setIsUploadingImage(true);
+      try {
+        const { url } = await subirArchivo('/uploads/product-image', 'image', file);
+        setNewItem(prev => ({ ...prev, image: url }));
+      } catch (err) {
+        const mensaje = err instanceof ApiError ? err.message : 'No se pudo subir la imagen.';
+        showToast('danger', mensaje, 'No se Subió la Imagen');
+      } finally {
+        setIsUploadingImage(false);
+      }
     };
 
     const handleOpenCreateModal = () => {
@@ -84,7 +99,8 @@ export default function InventorySection({
         unit: item.unit || 'Unidades',
         category: item.category || 'General',
         supplier: item.supplier || '',
-        notes: item.notes || ''
+        notes: item.notes || '',
+        image: item.image || ''
       });
       setIsInventoryModalOpen(true);
     };
@@ -103,6 +119,7 @@ export default function InventorySection({
             unitCost: parseFloat(newItem.unitCost) || 0,
             supplier: newItem.supplier?.trim() || '',
             notes: newItem.notes?.trim() || '',
+            image: newItem.image || '',
           });
           showToast('inventory', 'El insumo ha sido actualizado correctamente.', 'Insumo Actualizado');
         } else {
@@ -121,6 +138,7 @@ export default function InventorySection({
             category: newItem.category || 'General',
             supplier: newItem.supplier?.trim() || '',
             notes: newItem.notes?.trim() || '',
+            image: newItem.image || '',
             createdAt: new Date().toISOString()
           });
           showToast('inventory', 'El insumo ha sido guardado exitosamente.', 'Insumo Registrado');
@@ -223,6 +241,13 @@ export default function InventorySection({
 
             return (
               <div key={item.id} className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 p-6 md:px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:shadow-md transition-shadow">
+                {item.image ? (
+                  <img src={item.image} alt={item.name} className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-gray-100 dark:border-stone-700" />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0" title="Sin foto: agrégala al editar">
+                    <ImagePlus className="w-6 h-6" />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <h3 className="font-bold text-xl text-gray-900 dark:text-white">{item.name}</h3>
@@ -402,6 +427,30 @@ export default function InventorySection({
 
                 {/* Modal Body */}
                 <div className="p-6 md:p-8 space-y-5 max-h-[70vh] overflow-y-auto">
+                  {/* Foto real del insumo */}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Foto del Insumo</label>
+                    <label className="flex items-center gap-4 p-3 rounded-2xl border border-dashed border-gray-300 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 cursor-pointer hover:border-brand-orange transition-colors">
+                      {newItem.image ? (
+                        <img src={newItem.image} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-white dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                          <ImagePlus className="w-6 h-6" />
+                        </div>
+                      )}
+                      <div className="text-sm">
+                        <p className="font-bold text-gray-800 dark:text-stone-200">{isUploadingImage ? 'Subiendo...' : newItem.image ? 'Cambiar foto' : 'Subir foto real'}</p>
+                        <p className="text-xs text-gray-500 dark:text-stone-400">Se muestra al cliente en el armado y los extras. JPG, PNG o WEBP, máx. 5 MB.</p>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleImageSelected(f); e.target.value = ''; }}
+                      />
+                    </label>
+                  </div>
+
                   {/* Nombre */}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">

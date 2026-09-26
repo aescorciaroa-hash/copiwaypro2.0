@@ -47,8 +47,14 @@ class Ingrediente {
         return array_map('ingrediente_a_inventario', $filas);
     }
 
+    /**
+     * Catalogo de ingredientes para el customizer del cliente ("sin X"/"extra
+     * X" y el armador interactivo). Excluye ambito='empaque_desechable': los
+     * empaques/desechables son insumos de gestion interna (se descuentan solos
+     * por receta), nunca algo que el cliente pueda "agregar" a su hamburguesa.
+     */
     public function listarIngredientes() {
-        $stmt = $this->consulta($this->base() . ' WHERE i.activo = 1 ORDER BY i.nombre ASC');
+        $stmt = $this->consulta($this->base() . " WHERE i.activo = 1 AND c.ambito != 'empaque_desechable' ORDER BY i.nombre ASC");
         $filas = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $stmt->close();
         return array_map('ingrediente_a_catalogo', $filas);
@@ -80,12 +86,12 @@ class Ingrediente {
             $stmt = $this->consulta(
                 'INSERT INTO INGREDIENTE
                     (id_categoria, nombre, unidad_medida, cantidad_stock,
-                     costo_unitario, costo_total, precio_extra, proveedor, notas)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                     costo_unitario, costo_total, precio_extra, proveedor, notas, imagen)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 [
                     $idCategoria, $datos['name'], $datos['unit'] ?? 'unidad', $datos['stock'] ?? 0,
                     $datos['unitCost'] ?? 0, $datos['totalCost'] ?? null, $datos['price'] ?? 0,
-                    $datos['supplier'] ?? null, $datos['notes'] ?? null,
+                    $datos['supplier'] ?? null, $datos['notes'] ?? null, $datos['image'] ?? null,
                 ]
             );
             $stmt->close();
@@ -113,7 +119,7 @@ class Ingrediente {
         $mapa = [
             'name' => 'nombre', 'unit' => 'unidad_medida', 'stock' => 'cantidad_stock',
             'unitCost' => 'costo_unitario', 'totalCost' => 'costo_total', 'price' => 'precio_extra',
-            'supplier' => 'proveedor', 'notes' => 'notas',
+            'supplier' => 'proveedor', 'notes' => 'notas', 'image' => 'imagen',
         ];
 
         $campos = [];
@@ -278,7 +284,17 @@ class Ingrediente {
         return $this->conn->insert_id;
     }
 
-    /** Resuelve un nombre de categoria a id_categoria; la crea (insumo_alimenticio) si no existe. */
+    /**
+     * Resuelve un nombre de categoria de INVENTARIO a id_categoria; la crea si no
+     * existe. El dropdown de Inventario (InventorySection.tsx) usa el nombre
+     * exacto "Empaques & Desechables" para agrupar empaques/desechables -- esa
+     * categoria debe nacer con ambito 'empaque_desechable', porque
+     * Producto::recetaDe() clasifica cada linea de RECETA como ingrediente o
+     * empaque leyendo el ambito de la categoria del insumo (no el nombre).
+     * Antes siempre se creaba como 'insumo_alimenticio': el empaque quedaba
+     * mezclado con los insumos de comida y el modulo de "Desechables y
+     * Empaques" del producto se veia vacio cada vez que se volvia a editar.
+     */
     private function resolverCategoria($nombreCategoria) {
         $nombreCategoria = trim((string) $nombreCategoria);
         if ($nombreCategoria === '') {
@@ -292,7 +308,8 @@ class Ingrediente {
             return $fila['id_categoria'];
         }
 
-        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, 'insumo_alimenticio')", [$nombreCategoria]);
+        $ambito = $nombreCategoria === 'Empaques & Desechables' ? 'empaque_desechable' : 'insumo_alimenticio';
+        $stmtIns = $this->consulta('INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, ?)', [$nombreCategoria, $ambito]);
         $stmtIns->close();
         return $this->conn->insert_id;
     }

@@ -6,6 +6,7 @@ export interface ConfirmDialogProps {
   isOpen: boolean;
   title: string;
   message: string;
+  details?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   type?: 'danger' | 'warning' | 'info' | 'success';
@@ -17,6 +18,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   isOpen,
   title,
   message,
+  details,
   confirmText = 'Confirmar',
   cancelText = 'Cancelar',
   type = 'warning',
@@ -106,7 +108,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               </button>
             </div>
 
-            <div className="flex gap-3 mt-7 pt-4 border-t border-gray-100 dark:border-stone-800">
+            {details && (
+              <div className="mt-4 max-h-[45vh] overflow-y-auto pr-1">{details}</div>
+            )}
+
+            <div className="flex gap-3 mt-5 pt-4 border-t border-gray-100 dark:border-stone-800">
               <button
                 type="button"
                 onClick={onCancel}

@@ -13,6 +13,7 @@ function ingrediente_a_inventario($fila) {
         'category' => $fila['categoria_nombre'],
         'supplier' => $fila['proveedor'],
         'notes' => $fila['notas'],
+        'image' => $fila['imagen'],
         'createdAt' => $fila['creado_en'],
     ];
 }
@@ -28,5 +29,6 @@ function ingrediente_a_catalogo($fila) {
         'price' => $precio,
         'category' => $fila['categoria_nombre'],
         'stock' => (float) $fila['cantidad_stock'],
+        'image' => $fila['imagen'],
     ];
 }
