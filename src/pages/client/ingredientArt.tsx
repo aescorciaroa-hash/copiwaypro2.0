@@ -483,26 +483,50 @@ export function renderBunBottom(kind: 'brioche' | 'pretzel'): React.ReactElement
   );
 }
 
-/** Miniatura cuadrada: foto real si existe, si no la ilustración propia recortada al centro. */
+/** Miniatura cuadrada: foto del ingrediente si el admin la subió; si no, un ícono neutro. */
 export function IngredientThumb({ name, image, size = 48, className = '' }: { name: string; image?: string; size?: number; className?: string }) {
   const style = { width: size, height: size };
   if (image) {
     return <img src={image} alt={name} style={style} className={`rounded-xl object-cover shrink-0 border border-gray-200 dark:border-stone-700 ${className}`} />;
   }
-  const kind = artKind(name);
-  if (!kind) {
+  return (
+    <div style={style} className={`rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0 ${className}`}>
+      <ChefHat className="w-1/2 h-1/2" />
+    </div>
+  );
+}
+
+/**
+ * Miniatura de una hamburguesa armada en el Creador Interactivo: apila el
+ * mismo arte SVG de sus ingredientes que usa el escenario del builder, en vez
+ * de un icono generico. Un producto personalizado nunca tiene una sola foto
+ * fija (cambia con cada pedido), pero SI sabemos exactamente que lleva, y eso
+ * es mas fiel que cualquier placeholder.
+ */
+export function CustomBurgerThumb({ ingredientNames, size = 48, className = '' }: { ingredientNames: string[]; size?: number; className?: string }) {
+  const kinds = (ingredientNames || []).map(n => artKind(n)).filter((k): k is ArtKind => !!k);
+  const bunKind = kinds.find(k => (BUN_KINDS as ArtKind[]).includes(k)) as 'brioche' | 'pretzel' | undefined;
+  const fillingKinds = kinds.filter(k => !(BUN_KINDS as ArtKind[]).includes(k));
+  const style = { width: size, height: size };
+
+  if (!bunKind && fillingKinds.length === 0) {
     return (
       <div style={style} className={`rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0 ${className}`}>
         <ChefHat className="w-1/2 h-1/2" />
       </div>
     );
   }
-  const a = ART[kind];
-  const side = Math.max(a.h, 34);
-  const vb = `${120 - side / 2} ${(a.h - side) / 2} ${side} ${side}`;
+
   return (
-    <div style={{ ...style, background: a.tint }} className={`rounded-xl flex items-center justify-center shrink-0 overflow-hidden border border-black/5 ${className}`}>
-      <svg viewBox={vb} width={size} height={size} preserveAspectRatio="xMidYMid meet">{a.draw()}</svg>
+    <div style={style} className={`rounded-xl bg-gray-50 dark:bg-stone-800 border border-gray-100 dark:border-stone-800 overflow-hidden shrink-0 relative ${className}`}>
+      <div
+        className="absolute left-1/2 top-1/2 flex flex-col items-center"
+        style={{ transform: `translate(-50%, -50%) scale(${size / 312})`, transformOrigin: 'center center' }}
+      >
+        {bunKind && renderBunTop(bunKind)}
+        {fillingKinds.map((k, idx) => renderArtLayer(k, idx))}
+        {bunKind && renderBunBottom(bunKind)}
+      </div>
     </div>
   );
 }

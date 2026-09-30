@@ -64,7 +64,7 @@ class Personal {
         );
         $pedido = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        $currentOrderId = $pedido ? $pedido['id_pedido'] : null;
+        $currentOrderId = $pedido ? '#ORD-' . $pedido['id_pedido'] : null;
 
         return personal_domicilio_a_json($fila, $currentOrderId);
     }

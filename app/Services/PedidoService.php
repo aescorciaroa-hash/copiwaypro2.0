@@ -68,6 +68,10 @@ class PedidoService {
         }
 
         // ---- Recalcula todo en el servidor; nunca confia en precios/totales del cliente ----
+        // El PVP de cada insumo no se guarda manualmente: se deriva del costo unitario
+        // (Inventario Express) + el margen de ganancia que el admin configura en Ajustes,
+        // igual que lo previsualiza el Creador Interactivo del lado del cliente.
+        $margen = $configuracion->margenGanancia();
         $itemsResueltos = [];
         $subtotal = 0.0;
 
@@ -76,7 +80,7 @@ class PedidoService {
 
             if (empty($item['productId']) && !empty($item['stack'])) {
                 // "Creador interactivo": hamburguesa armada capa por capa, sin producto base.
-                $pila = $this->resolverIngredientes($item['stack']);
+                $pila = $this->resolverIngredientes($item['stack'], $margen);
                 if (empty($pila)) {
                     throw new InvalidArgumentException('La hamburguesa personalizada no tiene ingredientes válidos.');
                 }
@@ -101,8 +105,8 @@ class PedidoService {
                 throw new InvalidArgumentException('Uno de los productos del carrito ya no está disponible.');
             }
 
-            $extras = $this->resolverIngredientes($item['extras'] ?? []);
-            $removidos = $this->resolverIngredientes($item['removed'] ?? []);
+            $extras = $this->resolverIngredientes($item['extras'] ?? [], $margen);
+            $removidos = $this->resolverIngredientes($item['removed'] ?? [], $margen);
 
             $costoExtras = array_sum(array_map(function ($e) { return (float) $e['precio_extra']; }, $extras));
             $precioUnitario = (float) $producto['precio'] + $costoExtras;
@@ -124,6 +128,8 @@ class PedidoService {
 
         $esEfectivo = ($payload['paymentMethod'] ?? 'online') === 'cash';
         $metodoPago = $esEfectivo ? 'efectivo' : 'digital';
+        $bancosValidos = ['nequi', 'daviplata', 'bancolombia'];
+        $bancoDigital = (!$esEfectivo && in_array($payload['bank'] ?? '', $bancosValidos, true)) ? $payload['bank'] : null;
         $estadoPago = 'pendiente';
         $fechaPago = null;
         $comprobante = null;
@@ -146,13 +152,13 @@ class PedidoService {
             $insertar = $this->consulta(
                 "INSERT INTO PEDIDO
                     (id_cliente, direccion_entrega, destino_lat, destino_lng, estado,
-                     canal_origen, metodo_pago, estado_pago, fecha_pago, comprobante_pago,
+                     canal_origen, metodo_pago, banco_digital, estado_pago, fecha_pago, comprobante_pago,
                      subtotal, costo_domicilio, descuento_cumpleanos, puntos_ganados, total)
-                 VALUES (?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
                     $idCliente, $payload['address'] ?? $cliente['direccion'],
                     $payload['lat'] ?? null, $payload['lng'] ?? null,
-                    $metodoPago, $estadoPago, $fechaPago, $comprobante,
+                    $metodoPago, $bancoDigital, $estadoPago, $fechaPago, $comprobante,
                     $subtotal, $envio, $descuento, $puntos, $total,
                 ]
             );
@@ -278,8 +284,13 @@ class PedidoService {
         return $producto;
     }
 
-    /** @return array de {id_ingrediente, nombre, precio_extra} */
-    private function resolverIngredientes($referencias) {
+    /**
+     * @param float $margen Porcentaje de ganancia (Ajustes) a aplicar sobre el costo_unitario
+     *   del insumo. INGREDIENTE.precio_extra no se usa como precio de venta: es el mismo
+     *   insumo de Inventario Express, y ahi solo se captura su costo, nunca un precio manual.
+     * @return array de {id_ingrediente, nombre, precio_extra}
+     */
+    private function resolverIngredientes($referencias, $margen = 0.0) {
         $resueltos = [];
         foreach ($referencias as $ref) {
             $fila = null;
@@ -296,10 +307,14 @@ class PedidoService {
             if (!$fila) {
                 continue; // ingrediente desconocido: se ignora en vez de romper el pedido
             }
+            // Igual al redondeo que ya preveia el Creador Interactivo en el cliente
+            // (ClientDashboard.tsx: Math.round((baseCost * (1 + margin/100)) / 100) * 100).
+            $costo = (float) $fila['costo_unitario'];
+            $pvp = round(($costo * (1 + $margen / 100)) / 100) * 100;
             $resueltos[] = [
                 'id_ingrediente' => $fila['id_ingrediente'],
                 'nombre' => $fila['nombre'],
-                'precio_extra' => (float) $fila['precio_extra'],
+                'precio_extra' => $pvp,
             ];
         }
         return $resueltos;
@@ -334,6 +349,29 @@ class PedidoService {
         $this->transicion($idPedido, ['pendiente', 'en_preparacion'], 'listo');
     }
 
+    /** El domiciliario toma un pedido 'listo': queda asignado a el, sin iniciar la ruta. */
+    public function tomarPedido($idPedido, $idDomiciliario) {
+        $this->conn->begin_transaction();
+        try {
+            $stmt = $this->consulta('SELECT estado, id_domiciliario FROM PEDIDO WHERE id_pedido = ? FOR UPDATE', [$idPedido]);
+            $fila = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$fila || $fila['estado'] !== 'listo'
+                || ($fila['id_domiciliario'] !== null && $fila['id_domiciliario'] !== $idDomiciliario)) {
+                throw new Exception('Este pedido ya no está disponible para reparto.');
+            }
+
+            $stmtUpd = $this->consulta("UPDATE PEDIDO SET id_domiciliario = ? WHERE id_pedido = ?", [$idDomiciliario, $idPedido]);
+            $stmtUpd->close();
+
+            $this->conn->commit();
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            throw $e;
+        }
+    }
+
     public function aceptarEntrega($idPedido, $idDomiciliario) {
         $this->conn->begin_transaction();
         try {
@@ -341,7 +379,8 @@ class PedidoService {
             $fila = $stmt->get_result()->fetch_assoc();
             $stmt->close();
 
-            if (!$fila || $fila['estado'] !== 'listo' || $fila['id_domiciliario'] !== null) {
+            if (!$fila || $fila['estado'] !== 'listo'
+                || ($fila['id_domiciliario'] !== null && $fila['id_domiciliario'] !== $idDomiciliario)) {
                 throw new Exception('Este pedido ya no está disponible para reparto.');
             }
 
@@ -357,7 +396,7 @@ class PedidoService {
 
     /** Entrega solo con PIN de 4 digitos verificado en el servidor. */
     public function confirmarEntrega($idPedido, $idDomiciliario, $pin) {
-        $stmt = $this->consulta('SELECT pin_entrega, estado, id_domiciliario FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
+        $stmt = $this->consulta('SELECT pin_entrega, estado, id_domiciliario, id_cliente FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
@@ -370,6 +409,15 @@ class PedidoService {
 
         $stmtUpd = $this->consulta("UPDATE PEDIDO SET estado = 'entregado' WHERE id_pedido = ?", [$idPedido]);
         $stmtUpd->close();
+
+        // Notificacion real del sistema operativo (Web Push), no un aviso
+        // dentro de la app: si falla (VAPID sin configurar, sin conexion,
+        // sin suscripcion), la entrega ya quedo confirmada de todas formas.
+        try {
+            (new PushNotificationService($this->conn))->notificarPedidoEntregado($idPedido, (int) $fila['id_cliente']);
+        } catch (Throwable $e) {
+            error_log('No se pudo enviar la notificacion push de entrega: ' . $e->getMessage());
+        }
     }
 
     private function transicion($idPedido, $desdeValidos, $hacia) {

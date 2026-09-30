@@ -79,7 +79,7 @@ const CustomZoomControl = () => {
 export default function DeliveryDashboard() {
     const { theme, toggleTheme } = useTheme();
 
-  const { orders, updateOrder, updateOrderStatus, staff, updateStaff, confirmDelivery } = useStore();
+  const { orders, updateOrder, updateOrderStatus, takeOrder: takeOrderApi, staff, updateStaff, confirmDelivery } = useStore();
 
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loggedInUserId, setLoggedInUserId] = useState<string | null>(null);
@@ -245,26 +245,22 @@ export default function DeliveryDashboard() {
     });
   };
 
-  const takeOrder = (orderId: string) => {
+  const takeOrder = async (orderId: string) => {
     if (acceptedOrders.length >= 3 && !acceptedOrders.includes(orderId)) {
       alert('Has alcanzado el límite máximo de 3 pedidos simultáneos en tu ruta.');
+      return;
+    }
+    // La asignación se persiste al tomar el pedido (no al iniciar la ruta).
+    try {
+      await takeOrderApi(orderId);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : 'No se pudo tomar el pedido. Intenta de nuevo.';
+      showToast('danger', message, 'No se Pudo Tomar el Pedido');
       return;
     }
     if (!acceptedOrders.includes(orderId)) {
       setAcceptedOrders([...acceptedOrders, orderId]);
       showToast('info', `Tomaste el pedido #${orderId}. Prepárate para iniciar la ruta.`, 'Pedido Asignado');
-    }
-    const currentDriver = staff.find(s => s.id === loggedInUserId && s.role === 'Domiciliario');
-
-    updateOrder(orderId, {
-      driverName: currentDriver?.name || (username ? username.charAt(0).toUpperCase() + username.slice(1) : 'Domiciliario'),
-      driverPhone: currentDriver?.phone || '',
-      driverPlate: currentDriver?.plate || '',
-      driverVehicle: vehicleWithModel(currentDriver?.vehicle, currentDriver?.vehicleModel)
-    });
-
-    if (loggedInUserId) {
-      updateStaff(loggedInUserId, { role: 'Domiciliario', currentOrderId: orderId });
     }
   };
 
@@ -553,7 +549,7 @@ export default function DeliveryDashboard() {
       {/* Cabecera Móvil - Solo visible en celulares */}
       <header className="md:hidden px-6 py-3 border-b border-gray-100 dark:border-stone-800/50 flex flex-col shrink-0 bg-white dark:bg-[#151515] z-30 shadow-sm">
           <div className="flex justify-between items-center mb-2">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => irA('/')}>
+            <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
                 <Navigation className="w-4 h-4 text-white" />
               </div>
@@ -597,7 +593,7 @@ export default function DeliveryDashboard() {
         {/* Cabecera Desktop - Solo visible en laptops */}
         <header className="hidden md:flex px-8 py-5 border-b border-gray-50 dark:border-stone-800/50 flex-col shrink-0 sticky top-0 bg-white dark:bg-[#151515] z-10">
           <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => irA('/')}>
+            <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
                 <Navigation className="w-5 h-5 text-white" />
               </div>
@@ -644,7 +640,7 @@ export default function DeliveryDashboard() {
             </div>
           ) : (
             deliveries.map(order => {
-              const isAccepted = acceptedOrders.includes(order.id);
+              const isAccepted = acceptedOrders.includes(order.id) || (order.status === 'Listos' && !!order.driverName);
               const isActive = activeRoute?.id === order.id;
               const isOnlinePayment = order.paymentMethod === 'online' || order.paymentStatus === 'Pagado' || order.status === 'Pagado'; // Fallback logic
               

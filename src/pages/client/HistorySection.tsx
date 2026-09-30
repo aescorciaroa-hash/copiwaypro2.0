@@ -2,8 +2,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Calendar, CheckCircle2, FileText, MapPin, RotateCcw, Search, ShoppingBag, Sparkles, Star, Truck, User, Wallet, X } from 'lucide-react';
 
 import { formatCOP, orderCode, vehicleWithModel } from '../../lib/format';
-import { Order, StoreConfig } from '../../store/almacenAplicacion';
+import { Order, Product, StoreConfig } from '../../store/almacenAplicacion';
 import { UserProfileState } from '../ClientDashboard';
+import { CustomBurgerThumb } from './ingredientArt';
 
 interface HistorySectionProps {
   orders: Order[];
@@ -29,13 +30,14 @@ interface HistorySectionProps {
   viewingReceiptOrder: Order | null;
   setViewingReceiptOrder: (order: Order | null) => void;
   storeConfig: StoreConfig;
+  catalog: Product[];
 }
 
 export default function HistorySection({
   orders, userProfile, historySearch, setHistorySearch, historyFilter, setHistoryFilter,
   setActiveTab, reviewingOrderId, setReviewingOrderId, reviewRating, setReviewRating,
   reviewHoverRating, setReviewHoverRating, reviewText, setReviewText, reviewTags, setReviewTags,
-  updateOrder, showToast, reorder, viewingReceiptOrder, setViewingReceiptOrder, storeConfig,
+  updateOrder, showToast, reorder, viewingReceiptOrder, setViewingReceiptOrder, storeConfig, catalog,
 }: HistorySectionProps) {
   const allDeliveredOrders = orders.filter(o => o.status === 'Entregado' || o.status === 'entregado');
   const historyList = allDeliveredOrders.length > 0 ? allDeliveredOrders : orders;
@@ -191,7 +193,7 @@ export default function HistorySection({
                         <CheckCircle2 className="w-3.5 h-3.5" /> Entregado
                       </span>
                       <span className="px-2.5 py-1 rounded-full bg-gray-100 dark:bg-stone-800 text-gray-600 dark:text-stone-300 font-semibold text-[11px]">
-                        {order.paymentMethod === 'online' ? '💳 Pago Digital' : '💵 Efectivo'}
+                        {order.paymentMethod === 'online' ? `💳 ${order.digitalBank === 'nequi' ? 'Nequi' : order.digitalBank === 'daviplata' ? 'Daviplata' : order.digitalBank === 'bancolombia' ? 'Bancolombia' : 'Pago Digital'}` : '💵 Efectivo'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
@@ -531,7 +533,9 @@ export default function HistorySection({
                       <div>
                         <p className="font-bold text-gray-500 dark:text-stone-400 text-[11px]">Método de pago</p>
                         <p className="font-semibold text-gray-900 dark:text-white mt-0.5">
-                          {viewingReceiptOrder.paymentMethod === 'online' ? 'Pago Digital' : 'Efectivo al Entregar'}
+                          {viewingReceiptOrder.paymentMethod === 'online'
+                            ? (viewingReceiptOrder.digitalBank === 'nequi' ? 'Nequi' : viewingReceiptOrder.digitalBank === 'daviplata' ? 'Daviplata' : viewingReceiptOrder.digitalBank === 'bancolombia' ? 'Bancolombia' : 'Pago Digital')
+                            : 'Efectivo al Entregar'}
                         </p>
                       </div>
                     </div>
@@ -575,23 +579,37 @@ export default function HistorySection({
                   </div>
 
                   <div className="space-y-3">
-                    {(viewingReceiptOrder.items || []).map((it, iIdx: number) => (
+                    {(viewingReceiptOrder.items || []).map((it, iIdx: number) => {
+                      const catProduct = catalog.find(p => p.id === (it.productId || it.id) || p.name.toLowerCase() === (it.name || '').toLowerCase());
+                      const itemImage = it.product?.image || catProduct?.image;
+                      return (
                       <div
                         key={iIdx}
                         className="bg-white dark:bg-stone-900 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex flex-col gap-2"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3">
-                            <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-stone-800 text-gray-900 dark:text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
-                              {it.quantity}x
-                            </span>
+                            <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-stone-800 overflow-hidden shrink-0 relative">
+                              {itemImage ? (
+                                <img src={itemImage} alt={it.name} className="w-full h-full object-cover" />
+                              ) : it.extras && it.extras.length > 0 ? (
+                                <CustomBurgerThumb ingredientNames={it.extras.map(e => e.name)} size={44} className="!rounded-none border-0" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                  <ShoppingBag className="w-4 h-4 opacity-50" />
+                                </div>
+                              )}
+                              <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-brand-orange text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white dark:ring-stone-900">
+                                {it.quantity}
+                              </span>
+                            </div>
                             <div>
                               <h5 className="font-bold text-gray-900 dark:text-white text-sm">
                                 {it.name}
                               </h5>
-                              {it.isCustom && (
+                              {it.name === 'Hamburguesa Personalizada' && (
                                 <span className="inline-block mt-1 text-[11px] font-bold text-brand-orange bg-brand-orange/10 px-2 py-0.5 rounded-md">
-                                  Hamburguesa Personalizada
+                                  Armada en el Creador Interactivo
                                 </span>
                               )}
                             </div>
@@ -617,13 +635,14 @@ export default function HistorySection({
                                 key={eI}
                                 className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40"
                               >
-                                + Extra {e.name}
+                                {it.name === 'Hamburguesa Personalizada' ? e.name : `+ Extra ${e.name}`}
                               </span>
                             ))}
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -19,6 +19,7 @@ import { api, ApiError, irA } from '../servicios/api';
 import { CustomSelect } from '../components/CustomSelect';
 import { TimePickerModal } from '../components/TimePickerModal';
 import { generateCierrePDF } from '../utils/generarCierrePdf';
+import { CustomBurgerThumb } from './client/ingredientArt';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { soundFx } from '../utils/audio';
@@ -98,6 +99,7 @@ export interface DriverMockOrder {
   total: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  raw?: Order;
 }
 
 export interface DriverMockInfo {
@@ -256,7 +258,7 @@ export default function AdminDashboard() {
     inventory, addInventoryItem, updateInventoryItem, updateInventoryStock, deleteInventoryItem,
     inventoryLogs,
     staff, addStaff, updateStaff, deleteStaff,
-    orders, addOrder, updateOrderStatus, setOrders,
+    orders, addOrder, updateOrderStatus, setOrders, ordersSynced,
     clients, addClient, updateClient, deleteClient,
     storeConfig, updateStoreConfig,
     addCategory, removeCategory
@@ -648,12 +650,15 @@ export default function AdminDashboard() {
   };
 
   // Real-time tracking of new orders to play chime alert (RF-27)
-  const prevAdminOrdersCount = useRef<number>(orders.length);
-  const initialAdminLoad = useRef<boolean>(true);
+  const prevAdminOrdersCount = useRef<number | null>(null);
 
   useEffect(() => {
-    if (initialAdminLoad.current) {
-      initialAdminLoad.current = false;
+    // Espera al primer setOrders real del polling (ver FirebaseSync): antes
+    // de eso `orders` está vacío por el estado inicial del store, y compararlo
+    // contra el primer fetch real disparaba la alerta en cada login.
+    if (!ordersSynced) return;
+
+    if (prevAdminOrdersCount.current === null) {
       prevAdminOrdersCount.current = orders.length;
       return;
     }
@@ -664,7 +669,7 @@ export default function AdminDashboard() {
       setTimeout(() => setShowOrderAlert(false), 5000);
     }
     prevAdminOrdersCount.current = orders.length;
-  }, [orders]);
+  }, [orders, ordersSynced]);
 
   // Cleanup hook para eliminar órdenes sin artículos
   useEffect(() => {
@@ -1223,18 +1228,21 @@ export default function AdminDashboard() {
 
                   <div>
                     <h3 className="font-bold text-sm text-gray-900 dark:text-white mb-4 uppercase tracking-wider">Consumo de Insumos</h3>
-                    <div className="bg-gray-50 dark:bg-stone-900/50 rounded-[20px] p-8 border border-gray-100 dark:border-stone-800">
-                      <div className="space-y-3">
-                        {cierreData?.insumosConsumidos.map((insumo, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600 dark:text-stone-300">{insumo.name}</span>
-                            <span className="font-bold text-gray-900 dark:text-white">{insumo.used} unid.</span>
-                          </div>
-                        ))}
-                        {(!cierreData?.insumosConsumidos || cierreData.insumosConsumidos.length === 0) && (
-                          <p className="text-sm text-gray-500 italic">No hay datos de insumos consumidos hoy.</p>
-                        )}
-                      </div>
+                    <div className="bg-gray-50 dark:bg-stone-900/50 rounded-[20px] p-5 border border-gray-100 dark:border-stone-800">
+                      {cierreData?.insumosConsumidos && cierreData.insumosConsumidos.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {cierreData.insumosConsumidos.map((insumo, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-3 bg-white dark:bg-[#151515] rounded-xl px-4 py-3 border border-gray-100 dark:border-stone-800">
+                              <span className="text-sm font-medium text-gray-700 dark:text-stone-300 truncate">{insumo.name}</span>
+                              <span className="shrink-0 text-xs font-black text-brand-orange bg-orange-50 dark:bg-orange-950/30 px-2.5 py-1 rounded-full">
+                                {insumo.used} unid.
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No hay datos de insumos consumidos hoy.</p>
+                      )}
                     </div>
                   </div>
 
@@ -1425,20 +1433,18 @@ export default function AdminDashboard() {
                     <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-stone-400 mb-2.5">
                       Consumo de Insumos (Escandallo)
                     </h4>
-                    <div className="rounded-xl border border-gray-100 dark:border-stone-800 overflow-hidden text-xs">
-                      <div className="bg-gray-100 dark:bg-stone-900 p-2.5 font-bold flex justify-between text-gray-700 dark:text-stone-300">
-                        <span>Insumo / Ingrediente</span>
-                        <span>Cantidad Consumida</span>
-                      </div>
-                      <div className="divide-y divide-gray-100 dark:divide-stone-800">
-                        {cierreData.insumosConsumidos?.map((ins, i: number) => (
-                          <div key={i} className="p-2.5 flex justify-between text-gray-700 dark:text-stone-300 bg-white dark:bg-[#1f1f23]">
-                            <span>{ins.name}</span>
-                            <span className="font-semibold text-gray-900 dark:text-white">{ins.used} u</span>
+                    {cierreData.insumosConsumidos && cierreData.insumosConsumidos.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {cierreData.insumosConsumidos.map((ins, i: number) => (
+                          <div key={i} className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-stone-900 rounded-lg px-3 py-2 border border-gray-100 dark:border-stone-800 text-xs">
+                            <span className="text-gray-600 dark:text-stone-300 truncate">{ins.name}</span>
+                            <span className="shrink-0 font-bold text-gray-900 dark:text-white">{ins.used} u</span>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 italic">Sin insumos consumidos.</p>
+                    )}
                   </div>
 
                   <div className="pt-4 border-t border-gray-100 dark:border-stone-800 text-[11px] text-gray-400 dark:text-stone-500 flex justify-between items-center">
@@ -1531,48 +1537,127 @@ export default function AdminDashboard() {
                   Pedidos Asignados ({selectedDriverInfo.orders.length})
                 </h3>
                 
-                <div className="space-y-4">
-                  {selectedDriverInfo.orders.map((order, idx: number) => (
-                    <div key={idx} className="border border-gray-200 dark:border-stone-800 rounded-[24px] p-6 bg-white dark:bg-[#151515] relative overflow-hidden group">
-                      <div className={`absolute top-0 left-0 w-1.5 h-full ${order.status === 'Entregado' ? 'bg-emerald-500' : 'bg-brand-orange'}`}></div>
-                      
-                      <div className="flex justify-between items-start mb-4">
+                <div className="space-y-5">
+                  {selectedDriverInfo.orders.length === 0 && (
+                    <div className="text-center py-10 rounded-[24px] border border-dashed border-gray-200 dark:border-stone-800 text-sm text-gray-500 dark:text-stone-400">
+                      Sin pedidos asignados por ahora.
+                    </div>
+                  )}
+                  {selectedDriverInfo.orders.map((order, idx: number) => {
+                    const raw = order.raw;
+                    const delivered = order.status === 'Entregado';
+                    const paid = (!order.paymentMethod || order.paymentMethod === 'online' || order.paymentStatus === 'Pagado');
+                    const items = raw?.items || [];
+                    return (
+                    <div key={idx} className="rounded-[28px] border border-gray-200 dark:border-stone-800 bg-white dark:bg-[#151515] overflow-hidden shadow-sm">
+                      <div className={`px-6 py-4 flex items-center justify-between gap-3 ${delivered ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-gradient-to-r from-brand-orange/10 to-transparent'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${delivered ? 'bg-emerald-500' : 'bg-brand-orange'} text-white`}>
+                            {delivered ? <CheckCircle2 className="w-5 h-5" /> : <Truck className="w-5 h-5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-black text-lg leading-none text-gray-900 dark:text-white">{String(order.id).replace(/^#/, '')}</p>
+                            {raw?.time && (
+                              <p className="text-xs text-gray-500 dark:text-stone-400 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> {raw.time}</p>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`px-3 py-1 text-[10px] font-black tracking-wider rounded-full uppercase ${delivered ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="p-6 space-y-5">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div className="flex items-center gap-3 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl">
+                            <div className="w-9 h-9 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0"><User className="w-4 h-4" /></div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{order.client}</p>
+                              {raw?.clientPhone ? (
+                                <a href={`tel:${raw.clientPhone}`} className="text-xs text-gray-500 dark:text-stone-400 hover:text-brand-orange">{raw.clientPhone}</a>
+                              ) : (
+                                <p className="text-xs text-gray-400">Teléfono no disponible</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl">
+                            <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center shrink-0"><MapPin className="w-4 h-4" /></div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-stone-300 self-center">{order.address}</p>
+                          </div>
+                        </div>
+
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{String(order.id).replace(/^#/, '')}</span>
-                            <span className={`px-2.5 py-1 text-[10px] font-black tracking-wider rounded-full uppercase ${order.status === 'Entregado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
-                              {order.status}
-                            </span>
+                          <p className="text-[11px] font-black uppercase tracking-wider text-gray-400 mb-3">Productos ({items.length || order.items.length})</p>
+                          <div className="space-y-3">
+                            {items.length > 0 ? items.map((item, i) => {
+                              const catProduct = products.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || item.product?.name || '').toLowerCase());
+                              const img = item.product?.image || catProduct?.image;
+                              const name = item.name || item.product?.name || catProduct?.name || 'Producto';
+                              const qty = item.quantity || 1;
+                              const linePrice = (item.finalPrice ?? item.price ?? 0) * qty;
+                              return (
+                                <div key={item.id || i} className="flex gap-3 items-start">
+                                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gray-100 dark:bg-stone-800 shrink-0 ring-1 ring-black/5">
+                                    {img ? (
+                                      <img src={img} alt={name} className="w-full h-full object-cover" />
+                                    ) : item.extras && item.extras.length > 0 ? (
+                                      <CustomBurgerThumb ingredientNames={item.extras.map(e => e.name)} size={56} className="!rounded-none border-0" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-gray-400"><ShoppingBag className="w-5 h-5" /></div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between gap-2">
+                                      <p className="text-sm font-bold text-gray-900 dark:text-white"><span className="text-brand-orange">{qty}x</span> {name}</p>
+                                      {linePrice > 0 && <p className="text-sm font-bold text-gray-700 dark:text-stone-300 shrink-0">{formatCOP(linePrice)}</p>}
+                                    </div>
+                                    {item.extras && item.extras.length > 0 && (
+                                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">+ {item.extras.map(e => e.name).join(', ')}</p>
+                                    )}
+                                    {item.removed && item.removed.length > 0 && (
+                                      <p className="text-xs text-red-500 mt-0.5">Sin {item.removed.map(e => e.name).join(', ')}</p>
+                                    )}
+                                    {item.modifications && item.modifications.length > 0 && (
+                                      <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{item.modifications.join(' · ')}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }) : order.items.map((item: string, i: number) => (
+                              <div key={i} className="text-sm text-gray-600 dark:text-stone-400">{item}</div>
+                            ))}
                           </div>
-                          <p className="font-medium text-gray-900 dark:text-white">{order.client}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{formatCOP(order.total)}</p>
-                          {(!order.paymentMethod || order.paymentMethod === 'online' || order.paymentStatus === 'Pagado' || order.status === 'Pagado') ? (
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Digital</span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-brand-orange uppercase tracking-wide">Efectivo</span>
+
+                        <div className="rounded-2xl bg-gray-50 dark:bg-stone-900 p-4 space-y-1.5 text-sm">
+                          {raw?.subtotal != null && (
+                            <div className="flex justify-between text-gray-600 dark:text-stone-400"><span>Subtotal</span><span>{formatCOP(raw.subtotal)}</span></div>
                           )}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center mb-4 bg-gray-50 dark:bg-stone-900 p-3 rounded-[16px]">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-                          <p className="text-sm font-medium text-gray-700 dark:text-stone-300">{order.address}</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        {order.items.map((item: string, i: number) => (
-                          <div key={i} className="text-sm text-gray-500 dark:text-stone-400 flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-stone-700"></span>
-                            {item}
+                          {(raw?.shipping ?? 0) > 0 && (
+                            <div className="flex justify-between text-gray-600 dark:text-stone-400"><span>Domicilio</span><span>{formatCOP(raw!.shipping!)}</span></div>
+                          )}
+                          {(raw?.discount ?? 0) > 0 && (
+                            <div className="flex justify-between text-emerald-600"><span>Descuento</span><span>-{formatCOP(raw!.discount!)}</span></div>
+                          )}
+                          <div className="flex justify-between items-center pt-2 border-t border-gray-200 dark:border-stone-700">
+                            <span className="font-black text-gray-900 dark:text-white">Total</span>
+                            <span className="font-black text-lg text-gray-900 dark:text-white">{formatCOP(order.total)}</span>
                           </div>
-                        ))}
+                          <div className="flex justify-between items-center pt-1">
+                            <span className="text-gray-500 dark:text-stone-400">Pago</span>
+                            {paid ? (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-black uppercase">
+                                Digital{raw?.digitalBank ? ` · ${raw.digitalBank}` : ''} · Pagado
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-brand-orange text-[10px] font-black uppercase">Cobrar en efectivo</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -1737,7 +1822,7 @@ export default function AdminDashboard() {
                           {(item.removed.length > 0 || item.extras.length > 0) && (
                             <div className="flex flex-wrap gap-2 mt-1.5">
                               {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
-                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
+                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">{item.name === 'Hamburguesa Personalizada' ? `+ ${e.name}` : `+ Extra ${e.name}`}</span>)}
                             </div>
                           )}
                         </div>
@@ -2115,6 +2200,8 @@ export default function AdminDashboard() {
                         <li key={idx} className="flex items-center gap-4 text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl border border-gray-100 dark:border-stone-800">
                           {itemImage ? (
                             <img src={itemImage} alt={item.name} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-gray-200 dark:border-stone-700" />
+                          ) : item.extras && item.extras.length > 0 ? (
+                            <CustomBurgerThumb ingredientNames={item.extras.map(e => e.name)} size={64} className="!rounded-xl" />
                           ) : (
                             <div className="w-16 h-16 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
                               <ShoppingBag className="w-6 h-6" />

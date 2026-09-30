@@ -50,6 +50,7 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
         'date' => $fila['fecha_hora'],
         'time' => date('H:i', strtotime($fila['fecha_hora'])),
         'paymentMethod' => $fila['metodo_pago'] === 'efectivo' ? 'cash' : 'online',
+        'digitalBank' => $fila['banco_digital'] ?? null,
         'paymentStatus' => $fila['estado_pago'] === 'aprobado' ? 'Pagado' : ucfirst($fila['estado_pago']),
     ];
 }

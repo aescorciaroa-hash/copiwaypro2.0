@@ -60,6 +60,9 @@ export default function OrdersSection({
           status: o.status,
           items: (o.items || []).map(it => `${it.quantity || 1}x ${it.product?.name || it.name || 'Producto'}`),
           total: o.total,
+          paymentMethod: o.paymentMethod,
+          paymentStatus: o.paymentStatus,
+          raw: o,
         })),
       };
     };

@@ -7,14 +7,16 @@ import {
   Sun, Moon, Utensils, LayoutGrid, RotateCcw, 
   ShoppingCart, Gift, AlertCircle, CheckCircle2, Trash2, X,
   ChefHat, Minus, Plus, MessageCircle, Star, Smartphone, Layers, CreditCard, Banknote,
-  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff, User
+  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff, User,
+  Clock, Receipt, Percent
 } from 'lucide-react';
 
 import { formatCOP, orderCode } from '../lib/format';
-import { IngredientThumb } from './client/ingredientArt';
+import { CustomBurgerThumb, IngredientThumb } from './client/ingredientArt';
 import { CustomDatePicker } from '../components/CustomDatePicker';
 import { useStore, Product, ProductComponent, Order, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
+import { activarNotificacionesPush, pushDisponible, sincronizarSuscripcionPush } from '../lib/pushNotifications';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import CatalogSection from './client/CatalogSection';
@@ -85,7 +87,7 @@ export interface CartItem {
 export default function ClientDashboard() {
   const { theme, toggleTheme } = useTheme();
     const [activeTab, setActiveTab] = useState('catalog');
-  const [showDeliveryNotification, setShowDeliveryNotification] = useState<string | null>(null);
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
   const [selectedOrderInfo, setSelectedOrderInfo] = useState<Order | null>(null);
   const [reviewingOrderId, setReviewingOrderId] = useState<string | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(0);
@@ -554,6 +556,7 @@ export default function ClientDashboard() {
           pointsEarned,
           status: 'Pendiente' as const, // Global Store status
           paymentMethod: paymentMethod,
+          digitalBank: paymentMethod === 'online' ? digitalBank : null,
           paymentStatus: paymentMethod === 'online' ? 'Pagado' : 'Pendiente Efectivo',
           address: userProfile.address || 'Dirección Cliente Predeterminada',
           clientPhone: userProfile.phone,
@@ -696,16 +699,23 @@ export default function ClientDashboard() {
             const nameOf = (r: NamedRef | string) => (typeof r === 'string' ? r : r?.name) || '';
             const layers = (item.stack || item.extras || []).map(nameOf).filter(Boolean);
             const removed = (item.removed || []).map(nameOf).filter(Boolean);
-            const catProduct = item.isCustom ? undefined : catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+            const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
             const image = item.product?.image || catProduct?.image;
             const recipe = (catProduct?.ingredients || item.product?.ingredients || [])
               .map(ing => (typeof ing === 'string' ? ing : ing.name || ''))
               .filter(n => n && !removed.some(r => r.toLowerCase() === n.toLowerCase()));
-            const extras = item.isCustom ? [] : (item.extras || []).map(nameOf).filter(Boolean);
+            const esArmadaDesdeCero = item.name === 'Hamburguesa Personalizada';
+            const extras = esArmadaDesdeCero ? [] : (item.extras || []).map(nameOf).filter(Boolean);
             const mods = item.modifications || [];
             return (
               <div key={idx} className="rounded-2xl bg-gray-50 dark:bg-stone-900/60 border border-gray-100 dark:border-stone-800 overflow-hidden">
-                {image && <img src={image} alt={item.name} className="w-full h-36 object-cover" />}
+                {image ? (
+                  <img src={image} alt={item.name} className="w-full h-36 object-cover" />
+                ) : esArmadaDesdeCero && layers.length > 0 ? (
+                  <div className="w-full h-36 flex items-center justify-center bg-white dark:bg-stone-950/40">
+                    <CustomBurgerThumb ingredientNames={layers} size={96} className="!rounded-2xl" />
+                  </div>
+                ) : null}
                 <div className="p-3 space-y-2">
                   {statuses[idx]?.discontinued && (
                     <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Este producto ya no se vende. No se agregará al carrito.</p>
@@ -722,7 +732,7 @@ export default function ClientDashboard() {
                       {formatCOP((statuses[idx]?.discontinued ? unit : newUnits[idx]) * qty)}
                     </p>
                   </div>
-                  {item.isCustom && layers.length > 0 && (
+                  {esArmadaDesdeCero && layers.length > 0 && (
                     <div>
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Armada con</p>
                       <div className="flex flex-wrap gap-1.5">
@@ -800,20 +810,50 @@ export default function ClientDashboard() {
   };
 
   // HU-14: Calificar orden
-  
-  // Escuchar si un pedido acaba de ser entregado
+
+  // El aviso de "tu pedido llego" ahora es una notificacion push real del
+  // sistema operativo (ver PedidoService::confirmarEntrega en el backend),
+  // no un banner dentro de la app. Al tocar esa notificacion, el Service
+  // Worker abre la app con ?calificarPedido=<id> en la URL; esto la lee una
+  // sola vez al montar y abre el modal de reseña directamente.
   useEffect(() => {
-    const recentDelivered = orders.find(o => 
-      (o.clientPhone === userProfile.phone || o.client === userProfile.name) && 
-      (o.status === 'Entregado' || o.status === 'entregado') && 
-      !o.rating
-    );
-    if (recentDelivered && !sessionStorage.getItem('notified_' + recentDelivered.id)) {
-      setShowDeliveryNotification(recentDelivered.id);
-      sessionStorage.setItem('notified_' + recentDelivered.id, 'true');
+    const params = new URLSearchParams(window.location.search);
+    const idPedidoACalificar = params.get('calificarPedido');
+    if (idPedidoACalificar) {
+      setReviewingOrderId(idPedidoACalificar);
+      params.delete('calificarPedido');
+      const query = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (query ? `?${query}` : ''));
     }
-  }, [orders, userProfile]);
-  
+  }, []);
+
+  // Activa (o reactiva en silencio) las notificaciones push del navegador.
+  useEffect(() => {
+    if (!pushDisponible()) return;
+
+    if (Notification.permission === 'granted') {
+      sincronizarSuscripcionPush();
+    } else if (Notification.permission === 'default' && !localStorage.getItem('push_prompt_dismissed')) {
+      setShowPushPrompt(true);
+    }
+  }, []);
+
+  const handleActivarPush = async () => {
+    const resultado = await activarNotificacionesPush();
+    setShowPushPrompt(false);
+    if (resultado === 'granted') {
+      showToast('success', 'Te avisaremos apenas tu pedido llegue.', 'Notificaciones Activadas');
+    } else if (resultado === 'denied') {
+      localStorage.setItem('push_prompt_dismissed', 'true');
+    }
+  };
+
+  const handleDismissPushPrompt = () => {
+    setShowPushPrompt(false);
+    localStorage.setItem('push_prompt_dismissed', 'true');
+  };
+
+
   const handleReviewSubmit = () => {
     if (reviewingOrderId && reviewRating > 0) {
       updateOrder(reviewingOrderId, { rating: reviewRating, reviewText });
@@ -827,31 +867,41 @@ export default function ClientDashboard() {
 
   return (
     <>
-      {/* Notificación de Pedido Entregado */}
+      {/* Aviso para activar notificaciones push reales (no es la notificacion
+          de pedido entregado en si -- esa la manda el sistema operativo). */}
       <AnimatePresence>
-        {showDeliveryNotification && (
+        {showPushPrompt && (
           <motion.div
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-[#151515] p-4 rounded-2xl shadow-2xl border-2 border-brand-orange w-[90%] max-w-md cursor-pointer"
-            onClick={() => {
-              setReviewingOrderId(showDeliveryNotification);
-              setShowDeliveryNotification(null);
-              setActiveTab('history');
-            }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-[#151515] p-4 rounded-2xl shadow-2xl border-2 border-brand-orange w-[90%] max-w-md"
           >
-            <div className="flex items-center justify-between gap-4">
-              <div className="bg-brand-orange/20 p-2 rounded-full">
-                <CheckCircle2 className="w-6 h-6 text-brand-orange" />
+            <div className="flex items-center gap-4">
+              <div className="bg-brand-orange/20 p-2 rounded-full shrink-0">
+                <Bell className="w-6 h-6 text-brand-orange" />
               </div>
-              <div className="flex-1">
-                <p className="font-bold text-gray-900 dark:text-white">¡Tu pedido ha llegado!</p>
-                <p className="text-sm text-gray-500 dark:text-stone-400">Cuéntanos, ¿cómo estuvo tu comida?</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-gray-900 dark:text-white">Activa las notificaciones</p>
+                <p className="text-sm text-gray-500 dark:text-stone-400">Te avisamos apenas tu pedido llegue, aunque no tengas la app abierta.</p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleActivarPush}
+                    className="px-4 py-2 rounded-xl text-sm font-bold bg-brand-orange text-white hover:bg-[#e66500] transition-colors"
+                  >
+                    Activar
+                  </button>
+                  <button
+                    onClick={handleDismissPushPrompt}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-500 dark:text-stone-400 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors"
+                  >
+                    Ahora no
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setShowDeliveryNotification(null); }}
-                className="text-gray-400 hover:text-gray-600"
+              <button
+                onClick={handleDismissPushPrompt}
+                className="text-gray-400 hover:text-gray-600 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -979,6 +1029,31 @@ export default function ClientDashboard() {
               </div>
 
               <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                {/* Estado y fecha */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-full bg-brand-orange/10 text-brand-orange">
+                    {liveOrder.status === 'En Preparación' ? <ChefHat className="w-3.5 h-3.5" /> : liveOrder.status === 'En Camino' ? <Truck className="w-3.5 h-3.5" /> : <Receipt className="w-3.5 h-3.5" />}
+                    {liveOrder.status === 'Pagado' ? 'Recibido' : liveOrder.status}
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-stone-500 font-medium flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    {liveOrder.date ? new Date(liveOrder.date).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                </div>
+
+                {/* Dirección de entrega */}
+                {liveOrder.address && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80 flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-0.5">Dirección de Entrega</span>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-stone-200 truncate">{liveOrder.address}</p>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80">
                   <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">Repartidor</span>
                   {liveOrder.status === 'En Camino' || liveOrder.status === 'Entregado' ? (
@@ -988,7 +1063,7 @@ export default function ClientDashboard() {
                       </div>
                       <div className="min-w-0">
                         <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{liveOrder.driverName || 'Repartidor Asignado'}</p>
-                        <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{liveOrder.status}</p>
+                        <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{liveOrder.driverVehicle || 'Motocicleta'}{liveOrder.driverPlate ? ` • ${liveOrder.driverPlate}` : ''}</p>
                       </div>
                     </div>
                   ) : (
@@ -1006,24 +1081,85 @@ export default function ClientDashboard() {
                     Productos ({liveOrder.items.length})
                   </h4>
                   <div className="space-y-2.5">
-                    {liveOrder.items.map((item, idx: number) => (
-                      <div key={item.id || idx} className="bg-white dark:bg-stone-900 p-3.5 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex items-center justify-between gap-3">
-                        <span className="flex items-center gap-2.5 min-w-0 text-sm font-bold text-gray-900 dark:text-white">
-                          <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-stone-800 text-gray-700 dark:text-stone-300 font-black text-xs flex items-center justify-center shrink-0">{item.quantity}x</span>
-                          <span className="truncate">{item.name}</span>
-                        </span>
-                        <span className="font-bold text-gray-900 dark:text-white text-sm shrink-0">{formatCOP(item.finalPrice)}</span>
-                      </div>
-                    ))}
+                    {liveOrder.items.map((item, idx: number) => {
+                      const extras = (item.extras || []).map(e => e.name);
+                      const removed = (item.removed || []).map(r => r.name);
+                      // Los items que vienen del backend (pedidos ya creados) no
+                      // traen el objeto `product` embebido, solo `productId` -- hay
+                      // que resolver la imagen contra el catálogo cargado. OJO:
+                      // `isCustom` aquí significa "tuvo extras/removidos", no "no
+                      // tiene producto base" (p.ej. "Street Food sin cebolla" sigue
+                      // teniendo productId real), así que no debe filtrar la búsqueda.
+                      const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+                      const itemImage = item.product?.image || catProduct?.image;
+                      return (
+                        <div key={item.id || idx} className="bg-white dark:bg-stone-900 p-3.5 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-stone-800 overflow-hidden shrink-0 relative">
+                            {itemImage ? (
+                              <img src={itemImage} alt={item.name} className="w-full h-full object-cover" />
+                            ) : extras.length > 0 ? (
+                              <CustomBurgerThumb ingredientNames={extras} size={44} className="!rounded-none border-0" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                <ShoppingBag className="w-4 h-4 opacity-50" />
+                              </div>
+                            )}
+                            <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-brand-orange text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white dark:ring-stone-900">
+                              {item.quantity}
+                            </span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{item.name}</p>
+                            {(extras.length > 0 || removed.length > 0) && (
+                              <p className="text-[11px] text-gray-500 dark:text-stone-400 truncate mt-0.5">
+                                {extras.length > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{extras.join(', ')}</span>}
+                                {extras.length > 0 && removed.length > 0 && ' · '}
+                                {removed.length > 0 && <span className="text-red-500 dark:text-red-400">sin {removed.join(', ')}</span>}
+                              </p>
+                            )}
+                          </div>
+                          <span className="font-bold text-gray-900 dark:text-white text-sm shrink-0">{formatCOP(item.finalPrice)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80 space-y-2.5">
-                  <div className="flex justify-between items-center text-sm">
+                  {typeof liveOrder.subtotal === 'number' && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500 dark:text-stone-400 font-medium">Subtotal</span>
+                      <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(liveOrder.subtotal)}</span>
+                    </div>
+                  )}
+                  {typeof liveOrder.shipping === 'number' && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5" /> Envío
+                      </span>
+                      <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(liveOrder.shipping)}</span>
+                    </div>
+                  )}
+                  {!!liveOrder.discount && liveOrder.discount > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                        <Percent className="w-3.5 h-3.5" /> Descuento
+                      </span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">-{formatCOP(liveOrder.discount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-sm pt-2.5 border-t border-dashed border-gray-200 dark:border-stone-700">
                     <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
                       <Wallet className="w-3.5 h-3.5" /> Método de Pago
                     </span>
-                    <span className="font-bold text-gray-800 dark:text-stone-200">{liveOrder.paymentMethod === 'cash' ? 'Efectivo' : liveOrder.paymentMethod === 'nequi' ? 'Nequi' : liveOrder.paymentMethod === 'bancolombia' ? 'Bancolombia' : liveOrder.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
+                    <span className="font-bold text-gray-800 dark:text-stone-200">
+                      {liveOrder.paymentMethod === 'cash'
+                        ? 'Efectivo'
+                        : liveOrder.digitalBank === 'nequi' ? 'Nequi'
+                        : liveOrder.digitalBank === 'daviplata' ? 'Daviplata'
+                        : liveOrder.digitalBank === 'bancolombia' ? 'Bancolombia'
+                        : 'Digital'}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500 dark:text-stone-400 font-medium">Estado de Pago</span>
@@ -1034,6 +1170,16 @@ export default function ClientDashboard() {
                     <span className="text-brand-orange">{formatCOP(liveOrder.total)}</span>
                   </div>
                 </div>
+
+                {liveOrder.deliveryPin && liveOrder.status !== 'Entregado' && (
+                  <div className="bg-gradient-to-br from-brand-orange/15 to-orange-500/5 p-4 rounded-2xl border border-dashed border-brand-orange/40 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-brand-orange font-bold uppercase tracking-wider block">PIN de Entrega</span>
+                      <p className="text-xl font-black text-brand-orange tracking-[0.2em] leading-tight">{liveOrder.deliveryPin}</p>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-stone-400 text-right max-w-[140px]">Entrégalo al repartidor para confirmar la entrega.</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
@@ -1044,7 +1190,7 @@ export default function ClientDashboard() {
       <div className="min-h-screen bg-gray-50/50 dark:bg-stone-950 text-gray-900 dark:text-gray-100 font-sans flex transition-colors duration-300">
       {/* Barra Lateral (Sidebar) */}
       <aside className="w-[280px] bg-white dark:bg-[#151515] border-r border-gray-100 dark:border-stone-800 flex-col hidden md:flex shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-colors duration-300 h-screen sticky top-0">
-        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => irA('/')}>
+        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50">
           <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
             <Layers className="w-5 h-5 text-white" />
           </div>
@@ -1074,7 +1220,7 @@ export default function ClientDashboard() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50/50 dark:bg-stone-950 pb-20 md:pb-0 min-w-0">
         <header className="h-[70px] md:h-24 border-b border-gray-200 dark:border-white/5 bg-white dark:bg-[#0c0a09] flex items-center justify-between px-4 sm:px-6 md:px-10 shrink-0 sticky top-0 z-50 transition-colors duration-300">
           <div className="flex items-center gap-2">
-            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0 cursor-pointer" onClick={() => irA('/')}>
+            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
               <Layers className="w-4 h-4 text-white" />
             </div>
              {activeTab === 'profile' && <h1 className="text-[18px] md:text-[22px] font-bold text-gray-900 dark:text-white hidden sm:block">Gestión de Cuenta</h1>}
@@ -1272,6 +1418,7 @@ export default function ClientDashboard() {
                 activeOrders={activeOrders}
                 setSelectedOrderInfo={setSelectedOrderInfo}
                 setActiveTab={setActiveTab}
+                catalog={catalog}
               />
             )}
             {activeTab === 'history' && (
@@ -1299,6 +1446,7 @@ export default function ClientDashboard() {
                 viewingReceiptOrder={viewingReceiptOrder}
                 setViewingReceiptOrder={setViewingReceiptOrder}
                 storeConfig={storeConfig}
+                catalog={catalog}
               />
             )}
             {activeTab === 'profile' && (

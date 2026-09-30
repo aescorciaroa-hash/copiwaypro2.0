@@ -2,12 +2,13 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
-import { ArrowLeft,  
-  ChefHat, LogOut, Sun, Moon, Printer, CheckCircle2, AlertCircle, RefreshCw, Utensils, Volume2, VolumeX, Bell, Menu, X, Eye, EyeOff
+import { ArrowLeft,
+  ChefHat, LogOut, Sun, Moon, Printer, CheckCircle2, AlertCircle, RefreshCw, Utensils, Volume2, VolumeX, Bell, Menu, X, Eye, EyeOff, ShoppingBag
  } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useStore, Order } from '../store/almacenAplicacion';
+import { useStore, Order, Product } from '../store/almacenAplicacion';
 import { orderCode } from '../lib/format';
+import { CustomBurgerThumb } from './client/ingredientArt';
 import { soundFx } from '../utils/audio';
 import { api, ApiError, irA } from '../servicios/api';
 
@@ -16,7 +17,7 @@ type KitchenOrderStatus = 'Pendiente' | 'En Preparación' | 'Listos' | 'Pagado';
 export default function KitchenDashboard() {
   const { theme, toggleTheme } = useTheme();
   
-  const { orders, updateOrderStatus, inventory, staff } = useStore();
+  const { orders, updateOrderStatus, inventory, staff, products } = useStore();
 
   const [time, setTime] = useState(new Date());
   const [printError, setPrintError] = useState<string | null>(null);
@@ -274,7 +275,7 @@ export default function KitchenDashboard() {
       />
       {/* Sidebar - Desktop */}
       <aside className="w-[280px] bg-white dark:bg-[#151515] border-r border-gray-100 dark:border-stone-800 flex-col shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] h-[100dvh] sticky top-0 hidden lg:flex">
-        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => irA('/')}>
+        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50">
           <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
             <ChefHat className="w-5 h-5 text-white" />
           </div>
@@ -499,7 +500,7 @@ export default function KitchenDashboard() {
               <div className="flex-1 overflow-y-auto px-5 pb-6 space-y-4 min-w-0">
                 <AnimatePresence>
                   {getColumnOrders('Pendientes').map(order => (
-                    <OrderCard key={order.id} order={order} onMove={() => moveOrder(order.id, 'Pendientes')} onPrint={() => printSticker(order.id)} />
+                    <OrderCard key={order.id} order={order} products={products} onMove={() => moveOrder(order.id, 'Pendientes')} onPrint={() => printSticker(order.id)} />
                   ))}
                 </AnimatePresence>
                 {getColumnOrders('Pendientes').length === 0 && (
@@ -525,7 +526,7 @@ export default function KitchenDashboard() {
               <div className="flex-1 overflow-y-auto px-5 pb-6 pt-5 space-y-4 min-w-0">
                 <AnimatePresence>
                   {getColumnOrders('En Preparación').map(order => (
-                    <OrderCard key={order.id} order={order} onMove={() => moveOrder(order.id, 'En Preparación')} onPrint={() => printSticker(order.id)} />
+                    <OrderCard key={order.id} order={order} products={products} onMove={() => moveOrder(order.id, 'En Preparación')} onPrint={() => printSticker(order.id)} />
                   ))}
                 </AnimatePresence>
                 
@@ -552,7 +553,7 @@ export default function KitchenDashboard() {
               <div className="flex-1 overflow-y-auto px-5 pb-6 space-y-4 min-w-0">
                 <AnimatePresence>
                   {getColumnOrders('Listos').map(order => (
-                    <OrderCard key={order.id} order={order} onMove={() => moveOrder(order.id, 'Listos')} onPrint={() => printSticker(order.id)} isReady />
+                    <OrderCard key={order.id} order={order} products={products} onMove={() => moveOrder(order.id, 'Listos')} onPrint={() => printSticker(order.id)} isReady />
                   ))}
                 </AnimatePresence>
                 
@@ -609,88 +610,106 @@ export default function KitchenDashboard() {
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
               </div>
-              <div className="p-6 font-mono text-[13px] leading-tight space-y-4 max-h-[70vh] overflow-y-auto bg-[#fafafa] dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-100 shadow-inner">
+              <div className="p-6 pr-4 space-y-5 max-h-[70vh] overflow-y-auto bg-[#fafafa] dark:bg-[#1a1a1a] text-gray-900 dark:text-gray-100">
                 {/* Receipt Header */}
-                <div className="text-center space-y-1 mb-4 flex flex-col items-center">
-                  <div className="w-14 h-14 bg-gray-900 dark:bg-white rounded-full flex items-center justify-center text-white dark:text-gray-900 mb-2">
+                <div className="text-center flex flex-col items-center">
+                  <div className="w-14 h-14 bg-gray-900 dark:bg-white rounded-2xl flex items-center justify-center text-white dark:text-gray-900 mb-3 shadow-sm">
                      <Utensils className="w-7 h-7" />
                   </div>
-                  <h3 className="font-black text-xl tracking-widest uppercase">COPIWAY PRO</h3>
-                  <p className="text-xs">NIT: 900.123.456-7</p>
-                  <p className="text-xs">Cra 43 # 79-115, Barranquilla</p>
-                  <p className="text-xs">Tel: (300) 123-4567</p>
-                  <p className="text-xs font-bold mt-2">DOCUMENTO EQUIVALENTE POS</p>
+                  <h3 className="font-black text-lg tracking-tight">COPIWAY PRO</h3>
+                  <p className="text-xs text-gray-500 dark:text-stone-400 mt-1">NIT: 900.123.456-7</p>
+                  <p className="text-xs text-gray-500 dark:text-stone-400">Cra 43 # 79-115, Barranquilla</p>
+                  <p className="text-xs text-gray-500 dark:text-stone-400">Tel: (300) 123-4567</p>
+                  <span className="text-[10px] font-bold text-brand-orange bg-brand-orange/10 px-3 py-1 rounded-full mt-3">DOCUMENTO EQUIVALENTE POS</span>
                 </div>
 
-                <div className="border-t border-dashed border-gray-400 py-3 space-y-1">
-                  <div className="flex justify-between">
-                    <span>TICKET: <span className="font-bold">{orderCode(previewOrder.id)}</span></span>
-                    <span>{new Date(previewOrder.date || Date.now()).toLocaleDateString()}</span>
+                <div className="bg-white dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-stone-400">Ticket</span>
+                    <span className="font-bold">{orderCode(previewOrder.id)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span>CAJA: WEB APP</span>
-                    <span>{new Date(previewOrder.date || Date.now()).toLocaleTimeString()}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-stone-400">Fecha</span>
+                    <span className="font-semibold">{new Date(previewOrder.date || Date.now()).toLocaleDateString()} · {new Date(previewOrder.date || Date.now()).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}</span>
                   </div>
                 </div>
 
                 {/* Customer Data */}
-                <div className="border-t border-dashed border-gray-400 py-3 space-y-1">
-                  <p><span className="font-bold">CLIENTE:</span> {previewOrder.client || 'Cliente Local'}</p>
-                  {previewOrder.clientPhone && <p><span className="font-bold">TELÉFONO:</span> {previewOrder.clientPhone}</p>}
-                  <p><span className="font-bold">DIRECCIÓN:</span> {previewOrder.address || 'Recogida en local'}</p>
-                  {previewOrder.paymentMethod && <p><span className="font-bold">MÉTODO DE PAGO:</span> <span className="uppercase">{previewOrder.paymentMethod}</span></p>}
+                <div className="bg-white dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between items-center gap-3">
+                    <span className="text-gray-500 dark:text-stone-400 shrink-0">Cliente</span>
+                    <span className="font-semibold text-right truncate">{previewOrder.client || 'Cliente Local'}</span>
+                  </div>
+                  {previewOrder.clientPhone && (
+                    <div className="flex justify-between items-center gap-3">
+                      <span className="text-gray-500 dark:text-stone-400 shrink-0">Teléfono</span>
+                      <span className="font-semibold">{previewOrder.clientPhone}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-start gap-3">
+                    <span className="text-gray-500 dark:text-stone-400 shrink-0">Dirección</span>
+                    <span className="font-semibold text-right">{previewOrder.address || 'Recogida en local'}</span>
+                  </div>
+                  {previewOrder.paymentMethod && (
+                    <div className="flex justify-between items-center gap-3">
+                      <span className="text-gray-500 dark:text-stone-400 shrink-0">Método de pago</span>
+                      <span className="font-semibold">{previewOrder.paymentMethod === 'cash' ? 'Efectivo' : (previewOrder.digitalBank ? previewOrder.digitalBank.charAt(0).toUpperCase() + previewOrder.digitalBank.slice(1) : 'Digital')}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Items */}
-                <div className="border-t border-dashed border-gray-400 py-3 space-y-3">
-                  <div className="flex justify-between font-bold text-xs pb-1 border-b border-gray-200 dark:border-stone-700">
-                    <span className="w-8">CANT</span>
-                    <span className="flex-1">DESCRIPCIÓN</span>
-                    <span className="text-right">TOTAL</span>
-                  </div>
+                <div className="space-y-2.5">
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider px-1">Productos</h4>
                   {previewOrder.items.map((item, idx) => (
-                    <div key={idx} className="flex flex-col gap-1">
-                      <div className="flex justify-between items-start">
-                        <span className="w-8 font-bold">{item.quantity || 1}</span>
-                        <span className="flex-1 font-bold uppercase pr-2">{item.name}</span>
-                        <span className="text-right">${((item.finalPrice || item.price || 0) * (item.quantity || 1)).toLocaleString('es-CO')}</span>
+                    <div key={idx} className="bg-white dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-stone-800 text-gray-700 dark:text-stone-300 font-black text-xs flex items-center justify-center shrink-0">{item.quantity || 1}x</span>
+                          <span className="font-bold text-sm truncate">{item.name}</span>
+                        </div>
+                        <span className="font-bold text-sm shrink-0">${((item.finalPrice || item.price || 0) * (item.quantity || 1)).toLocaleString('es-CO')}</span>
                       </div>
                       {item.removed && item.removed.length > 0 && (
-                        <div className="pl-8 text-xs text-red-600 dark:text-red-400 font-medium">
-                          - SIN: {item.removed.map(r => r.name).join(', ')}
+                        <div className="pl-[34px] mt-1.5 text-xs text-red-500 dark:text-red-400 font-medium">
+                          Sin: {item.removed.map(r => r.name).join(', ')}
                         </div>
                       )}
                       {item.extras && item.extras.length > 0 && (
-                        <div className="pl-8 text-xs text-green-700 dark:text-green-400 font-medium">
-                          + EXTRAS: {item.extras.map(e => e.name).join(', ')}
+                        <div className="pl-[34px] mt-1 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                          {/* "Hamburguesa Personalizada" es el producto placeholder del Creador
+                              Interactivo (PedidoService::productoPersonalizadoOculto): ahi `extras`
+                              es la receta completa armada por el cliente, no un adicional sobre un
+                              producto base -- por eso no debe decir "Extra". */}
+                          {item.name === 'Hamburguesa Personalizada' ? 'Ingredientes: ' : 'Extra: '}{item.extras.map(e => e.name).join(', ')}
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
-                
+
                 {/* Totals */}
-                <div className="border-t border-dashed border-gray-400 py-3 space-y-1">
-                  <div className="flex justify-between items-center text-xs">
-                    <span>SUBTOTAL</span>
-                    <span>${(previewOrder.subtotal || previewOrder.items.reduce((acc, item) => acc + (item.finalPrice || item.price || 0) * (item.quantity || 1), 0)).toLocaleString('es-CO')}</span>
+                <div className="bg-white dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-4 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-stone-400">Subtotal</span>
+                    <span className="font-semibold">${(previewOrder.subtotal || previewOrder.items.reduce((acc, item) => acc + (item.finalPrice || item.price || 0) * (item.quantity || 1), 0)).toLocaleString('es-CO')}</span>
                   </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span>TARIFA DE ENVÍO</span>
-                    <span>${(previewOrder.shipping || (previewOrder.total - (previewOrder.subtotal || previewOrder.items.reduce((acc, item) => acc + (item.finalPrice || item.price || 0) * (item.quantity || 1), 0))) || 0).toLocaleString('es-CO')}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500 dark:text-stone-400">Tarifa de envío</span>
+                    <span className="font-semibold">${(previewOrder.shipping || (previewOrder.total - (previewOrder.subtotal || previewOrder.items.reduce((acc, item) => acc + (item.finalPrice || item.price || 0) * (item.quantity || 1), 0))) || 0).toLocaleString('es-CO')}</span>
                   </div>
-                  <div className="flex justify-between items-center font-black text-base pt-2 mt-1 border-t border-gray-300 dark:border-stone-700">
-                    <span>TOTAL A PAGAR</span>
+                  <div className="flex justify-between items-center font-black text-lg pt-2.5 mt-1 border-t border-dashed border-gray-200 dark:border-stone-700 text-brand-orange">
+                    <span>Total a Pagar</span>
                     <span>${(previewOrder.total || 0).toLocaleString('es-CO')}</span>
                   </div>
                 </div>
-                
+
                 {/* Footer */}
-                <div className="border-t border-dashed border-gray-400 pt-4 pb-2 text-center text-xs space-y-2">
-                  <p className="font-bold">¡GRACIAS POR SU PREFERENCIA!</p>
+                <div className="pt-2 pb-2 text-center text-xs text-gray-500 dark:text-stone-400 space-y-1.5">
+                  <p className="font-bold text-gray-700 dark:text-stone-300">¡Gracias por su preferencia!</p>
                   <p>Síguenos en IG: @copiway_pro</p>
                   <p>www.copiway.com</p>
-                  
+
                   {/* Barcode Simulation */}
                   <div className="flex justify-center items-center h-10 mt-4 opacity-70">
                     <div className="w-1 h-full bg-current mx-[1px]"></div>
@@ -726,7 +745,7 @@ export default function KitchenDashboard() {
 }
 
 // Componente de Tarjeta de Orden
-function OrderCard({ order, onMove, onPrint, isReady = false }: { order: Order, onMove: () => void, onPrint: () => void, isReady?: boolean }) {
+function OrderCard({ order, products, onMove, onPrint, isReady = false }: { order: Order, products: Product[], onMove: () => void, onPrint: () => void, isReady?: boolean }) {
   const isNew = order.status === 'Pendiente' && (Date.now() - new Date(order.date).getTime()) < 60000;
   
   const diffMinutes = Math.floor((Date.now() - new Date(order.date).getTime()) / 60000);
@@ -764,10 +783,26 @@ function OrderCard({ order, onMove, onPrint, isReady = false }: { order: Order, 
 
       <div className="flex-1 mb-6 min-w-0">
         <ul className="space-y-3">
-          {order.items.map((item, idx) => (
+          {order.items.map((item, idx) => {
+            const catProduct = products.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+            const itemImage = item.product?.image || catProduct?.image;
+            return (
             <li key={idx}>
               <div className="bg-gray-50 dark:bg-stone-800/30 rounded-2xl p-4 flex items-start gap-4 border border-gray-100 dark:border-stone-800/50">
-                <span className="font-black text-brand-orange text-lg shrink-0 mt-0.5 whitespace-nowrap">{item.quantity}x</span>
+                <div className="w-14 h-14 rounded-xl bg-white dark:bg-stone-900 overflow-hidden shrink-0 relative border border-gray-100 dark:border-stone-800">
+                  {itemImage ? (
+                    <img src={itemImage} alt={item.name} className="w-full h-full object-cover object-center" />
+                  ) : item.extras && item.extras.length > 0 ? (
+                    <CustomBurgerThumb ingredientNames={item.extras.map(e => e.name)} size={56} className="!rounded-none border-0" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-300 dark:text-stone-700">
+                      <ShoppingBag className="w-6 h-6" />
+                    </div>
+                  )}
+                  <span className="absolute -bottom-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-brand-orange text-white text-[11px] font-black flex items-center justify-center ring-2 ring-white dark:ring-[#151515]">
+                    {item.quantity}x
+                  </span>
+                </div>
                 <div>
                   <span className="font-bold text-gray-900 dark:text-white text-[16px] leading-tight block mb-1">{item.name}</span>
                   
@@ -792,7 +827,8 @@ function OrderCard({ order, onMove, onPrint, isReady = false }: { order: Order, 
                 </div>
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </div>
 

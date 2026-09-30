@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { CheckCircle2, Lock, Smartphone, ShieldCheck, XCircle } from 'lucide-react';
+import { CheckCircle2, Landmark, Lock, ShieldCheck, Smartphone, Wallet, XCircle } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
 
@@ -9,13 +10,16 @@ interface BankBrand {
   name: string;
   color: string;
   textColor: string;
+  icon: typeof Smartphone;
 }
 
 const BANKS: Record<'nequi' | 'daviplata' | 'bancolombia', BankBrand> = {
-  nequi: { name: 'Nequi', color: '#390069', textColor: '#ffffff' },
-  daviplata: { name: 'Daviplata', color: '#e4002b', textColor: '#ffffff' },
-  bancolombia: { name: 'Bancolombia', color: '#ffd200', textColor: '#111111' },
+  nequi: { name: 'Nequi', color: '#390069', textColor: '#ffffff', icon: Smartphone },
+  daviplata: { name: 'Daviplata', color: '#e4002b', textColor: '#ffffff', icon: Wallet },
+  bancolombia: { name: 'Bancolombia', color: '#ffd200', textColor: '#111111', icon: Landmark },
 };
+
+const PASOS: GatewayStep[] = ['connecting', 'waiting', 'verifying', 'approved'];
 
 interface PaymentGatewayModalProps {
   step: GatewayStep;
@@ -27,7 +31,21 @@ interface PaymentGatewayModalProps {
 
 export default function PaymentGatewayModal({ step, bank, phone, amount, declineReason }: PaymentGatewayModalProps) {
   const brand = BANKS[bank];
+  const BrandIcon = brand.icon;
   const maskedPhone = phone.length >= 4 ? `${'*'.repeat(Math.max(phone.length - 4, 0))}${phone.slice(-4)}` : phone;
+
+  // Referencia de transaccion: una por intento de pago (se regenera cada vez
+  // que arranca un nuevo ciclo 'connecting'), como en una pasarela real.
+  const [reference, setReference] = useState('');
+  useEffect(() => {
+    if (step === 'connecting') {
+      const azar = Math.floor(100000 + Math.random() * 900000);
+      setReference(`COP-${azar}`);
+    }
+  }, [step]);
+
+  const pasoActualIndex = step === 'declined' ? PASOS.indexOf('verifying') : PASOS.indexOf(step);
+  const fallo = step === 'declined';
 
   return (
     <AnimatePresence>
@@ -42,15 +60,42 @@ export default function PaymentGatewayModal({ step, bank, phone, amount, decline
           >
             <div style={{ backgroundColor: brand.color, color: brand.textColor }} className="px-6 py-5 flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center shrink-0">
-                <ShieldCheck className="w-5 h-5" />
+                <BrandIcon className="w-5 h-5" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="font-black text-lg leading-tight">{brand.name}</p>
-                <p className="text-xs opacity-80 font-medium">Pasarela de pagos segura</p>
+                <p className="text-xs opacity-80 font-medium flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" /> Pasarela de pagos segura
+                </p>
               </div>
             </div>
 
-            <div className="p-8 flex flex-col items-center text-center gap-5 min-h-[280px] justify-center">
+            {/* Barra de comercio/monto, como en una pasarela real */}
+            <div className="px-6 py-4 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between gap-3 bg-gray-50/80 dark:bg-white/[0.02]">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 dark:text-stone-500">Pagando a</p>
+                <p className="font-bold text-sm text-gray-900 dark:text-white truncate">CopiwayPRO</p>
+                {reference && <p className="text-[11px] text-gray-400 dark:text-stone-500 font-mono mt-0.5">Ref. {reference}</p>}
+              </div>
+              <p className="font-black text-lg text-gray-900 dark:text-white shrink-0">{formatCOP(amount)}</p>
+            </div>
+
+            {/* Progreso de la transaccion */}
+            <div className="px-6 pt-4 flex items-center gap-1.5">
+              {PASOS.map((p, i) => {
+                const completado = i <= pasoActualIndex;
+                const color = fallo && i === pasoActualIndex ? '#ef4444' : brand.color;
+                return (
+                  <div
+                    key={p}
+                    className={`h-1 flex-1 rounded-full transition-colors duration-300 ${completado ? '' : 'bg-gray-200 dark:bg-stone-800'}`}
+                    style={completado ? { backgroundColor: color } : undefined}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="p-8 flex flex-col items-center text-center gap-5 min-h-[260px] justify-center">
               {step === 'connecting' && (
                 <>
                   <div className="w-16 h-16 rounded-full border-4 border-gray-200 dark:border-stone-700 flex items-center justify-center relative">
@@ -119,6 +164,10 @@ export default function PaymentGatewayModal({ step, bank, phone, amount, decline
                   </div>
                 </>
               )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-gray-100 dark:border-stone-800 flex items-center justify-center gap-1.5 text-[11px] text-gray-400 dark:text-stone-500 font-medium">
+              <Lock className="w-3 h-3" /> Conexión cifrada TLS · Cumplimiento PCI DSS
             </div>
           </motion.div>
         </motion.div>

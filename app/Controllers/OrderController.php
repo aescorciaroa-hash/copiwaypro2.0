@@ -84,6 +84,15 @@ class OrderController {
         });
     }
 
+    /** Domiciliario toma un pedido 'Listos': queda asignado (sigue en Listos) */
+    public function take($id) {
+        global $conn;
+        $auth = new Autenticacion($conn);
+        $this->aplicarTransicion($id, function ($pedidoServicio, $idInterno) use ($auth) {
+            $pedidoServicio->tomarPedido($idInterno, $auth->idActual());
+        });
+    }
+
     /** Domiciliario acepta un pedido 'Listos' -> En Camino */
     public function accept($id) {
         global $conn;

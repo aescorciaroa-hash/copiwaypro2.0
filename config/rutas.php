@@ -70,6 +70,7 @@ return [
     'POST /api/orders' => ['OrderController', 'store', ['client']],
     'PATCH /api/orders/{id}/preparing' => ['OrderController', 'markPreparing', ['admin', 'kitchen']],
     'PATCH /api/orders/{id}/ready' => ['OrderController', 'markReady', ['admin', 'kitchen']],
+    'PATCH /api/orders/{id}/take' => ['OrderController', 'take', ['delivery']],
     'PATCH /api/orders/{id}/accept' => ['OrderController', 'accept', ['delivery']],
     'PATCH /api/orders/{id}/deliver' => ['OrderController', 'deliver', ['delivery']],
     'PATCH /api/orders/{id}/review' => ['OrderController', 'review', ['client']],
@@ -84,5 +85,10 @@ return [
 
     // ---- Sync (reemplaza onSnapshot de Firestore) ----
     'GET /api/sync' => ['SyncController', 'index', []],
+
+    // ---- Push (Web Push / VAPID) ----
+    'GET /api/push/public-key' => ['PushController', 'publicKey', []],
+    'POST /api/push/subscribe' => ['PushController', 'subscribe', ['client']],
+    'POST /api/push/unsubscribe' => ['PushController', 'unsubscribe', ['client']],
 
 ];

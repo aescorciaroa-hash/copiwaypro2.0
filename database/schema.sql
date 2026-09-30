@@ -134,6 +134,21 @@ CREATE TABLE CLIENTE_NOTIFICACION (
     FOREIGN KEY (id_cliente) REFERENCES CLIENTE(id_cliente) ON DELETE CASCADE
 );
 
+-- Suscripciones Web Push (VAPID) del cliente: un cliente puede tener varias
+-- (un dispositivo/navegador por fila). PedidoService las usa para avisarle
+-- por notificacion real del sistema cuando su pedido llega (ver NOTIFICACION
+-- para el registro/log de cada envio).
+CREATE TABLE PUSH_SUSCRIPCION (
+    id_suscripcion INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    id_cliente     INT UNSIGNED NOT NULL,
+    endpoint       VARCHAR(512) NOT NULL,
+    clave_p256dh   VARCHAR(255) NOT NULL,
+    clave_auth     VARCHAR(255) NOT NULL,
+    creado_en      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_push_suscripcion_endpoint (endpoint(255)),
+    FOREIGN KEY (id_cliente) REFERENCES CLIENTE(id_cliente) ON DELETE CASCADE
+);
+
 CREATE TABLE CODIGO_VERIFICACION (
     id_codigo        INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     id_cliente       INT UNSIGNED NOT NULL,
@@ -249,6 +264,10 @@ CREATE TABLE PEDIDO (
     estado               ENUM('pendiente','en_preparacion','listo','en_camino','entregado','cancelado') NOT NULL DEFAULT 'pendiente',
     canal_origen         ENUM('web','whatsapp','llamada') NOT NULL DEFAULT 'web',
     metodo_pago          ENUM('digital','efectivo') NOT NULL,
+    -- Solo aplica si metodo_pago='digital': que billetera eligio (Nequi/Daviplata/
+    -- Bancolombia). El frontend ya la pedia en el checkout pero se perdia al crear
+    -- el pedido, mostrando siempre "Digital / No especificado" en el detalle.
+    banco_digital        ENUM('nequi','daviplata','bancolombia') NULL,
     estado_pago          ENUM('pendiente','aprobado','rechazado') NOT NULL DEFAULT 'pendiente',
     fecha_pago           DATETIME     NULL,
     comprobante_pago     VARCHAR(255) NULL,

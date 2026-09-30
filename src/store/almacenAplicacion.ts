@@ -92,6 +92,7 @@ export interface OrderItem {
 
 export interface Order {
   paymentMethod?: string;
+  digitalBank?: 'nequi' | 'daviplata' | 'bancolombia' | null;
   paymentStatus?: string;
   id: string;
   status: 'Pendiente' | 'En Preparación' | 'Listos' | 'En Camino' | 'Entregado' | 'Pagado' | 'entregado';
@@ -178,6 +179,8 @@ interface AppState {
   inventory: InventoryItem[];
   staff: Staff[];
   orders: Order[];
+  /** true tras el primer setOrders con datos reales del servidor (ver FirebaseSync). Evita que la UI confunda la carga inicial de pedidos con una orden nueva. */
+  ordersSynced: boolean;
   ingredients: Ingredient[];
   clients: Client[];
   storeConfig: StoreConfig;
@@ -205,6 +208,7 @@ interface AppState {
   setOrders: (orders: Order[]) => void;
   addOrder: (order: Order) => Promise<void>;
   updateOrderStatus: (id: string, status: Order['status']) => Promise<void>;
+  takeOrder: (id: string) => Promise<void>;
   driverName?: string;
   updateOrder: (id: string, updates: Partial<Order>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
@@ -257,6 +261,7 @@ export const useStore = create<AppState>()((set, get) => ({
   inventory: [],
   staff: [],
   orders: [],
+  ordersSynced: false,
   ingredients: [],
   clients: [],
   inventoryLogs: [],
@@ -329,12 +334,13 @@ export const useStore = create<AppState>()((set, get) => ({
     set(state => ({ staff: state.staff.map(s => (s.id === id && (!role || s.role === role)) ? { ...s, active: false } : s) }));
   },
 
-  setOrders: (orders) => set({ orders }),
+  setOrders: (orders) => set({ orders, ordersSynced: true }),
   addOrder: async (order) => {
     const payload = {
       items: (order.items || []).map(toApiOrderItem),
       address: order.address,
       paymentMethod: order.paymentMethod === 'online' ? 'online' : 'cash',
+      bank: order.paymentMethod === 'online' ? order.digitalBank : undefined,
     };
     const created = await api.post<Order>('/orders', payload);
     set(state => ({ orders: [created, ...state.orders] }));
@@ -347,6 +353,10 @@ export const useStore = create<AppState>()((set, get) => ({
       return;
     }
     const updated = await api.patch<Order>(`/orders/${encodeURIComponent(id)}/${endpoint}`);
+    set(state => ({ orders: state.orders.map(o => o.id === id ? updated : o) }));
+  },
+  takeOrder: async (id) => {
+    const updated = await api.patch<Order>(`/orders/${encodeURIComponent(id)}/take`);
     set(state => ({ orders: state.orders.map(o => o.id === id ? updated : o) }));
   },
   updateOrder: async (id, updates) => {

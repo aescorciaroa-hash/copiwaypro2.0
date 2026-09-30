@@ -1,7 +1,7 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Edit2, ImagePlus, Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
+  ArrowDownRight, ArrowUpRight, Edit2, ImagePlus, Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
 } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
@@ -637,70 +637,36 @@ export default function InventorySection({
           </div>
           
           
-        <div className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                <tr className="bg-gray-50/50 dark:bg-[#1A1A1A]/50 border-b border-gray-100 dark:border-stone-800 text-xs font-black text-gray-500 dark:text-stone-400 uppercase tracking-wider">
-                  <th className="p-6">Fecha</th>
-                  <th className="p-6">Insumo</th>
-                  <th className="p-6">Tipo</th>
-                  <th className="p-6">Cantidad</th>
-                  <th className="p-6">Motivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-stone-800">
-                {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-[#1A1A1A]/50 transition-colors">
-                    <td className="p-6 text-sm font-medium text-gray-900 dark:text-white">
-                      {new Date(log.date).toLocaleString()}
-                    </td>
-                    <td className="p-6 text-sm text-gray-600 dark:text-stone-400 font-bold">{log.itemName}</td>
-                    <td className="p-6">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        log.type === 'Entrada' 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                      }`}>
-                        {log.type}
-                      </span>
-                    </td>
-                    <td className="p-6 text-sm font-black text-gray-900 dark:text-white">
-                      {log.type === 'Entrada' ? '+' : '-'}{log.amount}
-                    </td>
-                    <td className="p-6 text-sm text-gray-500 dark:text-stone-500">{log.reason}</td>
-                  </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={5} className="p-12 text-center text-gray-500 font-medium">No hay registros de movimientos.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Mobile Cards for Inventory Logs */}
-          <div className="md:hidden grid grid-cols-2 gap-3 p-3 border-t border-gray-100 dark:border-stone-800">
-            {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => (
-              <div key={log.id} className="bg-gray-50/50 dark:bg-[#1A1A1A]/50 border border-gray-100 dark:border-stone-800 rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden">
-                <div className={`absolute top-0 left-0 w-1 h-full ${log.type === 'Entrada' ? 'bg-green-500' : 'bg-red-500'}`} />
-                <div className="flex justify-between items-start gap-2">
-                  <h4 className="font-bold text-gray-900 dark:text-white text-[clamp(13px,3.5vw,14px)] line-clamp-2 leading-tight break-words">{log.itemName}</h4>
-                  <span className={`shrink-0 text-xs font-black whitespace-nowrap ${log.type === 'Entrada' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {log.type === 'Entrada' ? '+' : '-'}{log.amount}
-                  </span>
+        <div className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-stone-800">
+          {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => {
+            const isEntrada = log.type === 'Entrada';
+            const logDate = new Date(log.date);
+            return (
+              <div key={log.id} className="flex items-center gap-4 p-5 md:p-6 hover:bg-gray-50/50 dark:hover:bg-[#1A1A1A]/50 transition-colors">
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                  isEntrada
+                    ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+                    : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                }`}>
+                  {isEntrada ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
                 </div>
-                <p className="text-[10px] text-gray-500 font-medium">
-                  {new Date(log.date).toLocaleDateString()}
-                </p>
-                <p className="text-[clamp(11px,3vw,12px)] text-gray-600 dark:text-stone-400 line-clamp-2 mt-1 break-words">
-                  {log.reason}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{log.itemName}</p>
+                  <p className="text-xs text-gray-500 dark:text-stone-500 truncate mt-0.5">{log.reason}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`font-black text-sm ${isEntrada ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {isEntrada ? '+' : '-'}{log.amount}
+                  </p>
+                  <p className="text-[11px] text-gray-400 dark:text-stone-600 mt-0.5 whitespace-nowrap">
+                    {logDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })} · {logDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
               </div>
-            )) : (
-              <div className="col-span-2 text-center text-gray-500 font-medium py-8">No hay registros.</div>
-            )}
-          </div>
-
+            );
+          }) : (
+            <div className="p-12 text-center text-gray-500 font-medium">No hay registros de movimientos.</div>
+          )}
         </div>
         </div>
       </div>
