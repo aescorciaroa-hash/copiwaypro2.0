@@ -126,3 +126,18 @@ html.dark ::-webkit-scrollbar-track {
 ::-webkit-scrollbar-thumb:active {
   background-color: #ff7000;
 }
+
+/* Los mapas usan tiles de OpenStreetMap (gratis, sin API key) en ambos temas;
+   en modo oscuro se invierten con un filtro CSS ("poor man's dark mode") en
+   vez de pedir un tileset oscuro aparte, que sí requeriría una key de pago.
+   El filtro solo toca el pane de tiles, nunca marcadores/popups/rutas. */
+.leaflet-dark-tiles .leaflet-tile-pane {
+  /* invert() solo, sin hue-rotate, deja los colores del tile mal (el agua
+     queda naranja, los parques magenta) porque cada color pasa a su
+     complementario. hue-rotate(180deg) lo corrige: el agua vuelve a verse
+     azul, los parques verdes, etc. Sin este ajuste el fondo tambien queda
+     casi negro puro en vez de un gris oscuro comodo -- brightness/contrast
+     se afinan suaves (no agresivos) para no "quemar" el negro. saturate()
+     baja el resto de color que sobra para que no se vea como un negativo. */
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.85) saturate(0.65);
+}

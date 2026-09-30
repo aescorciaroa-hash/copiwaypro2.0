@@ -7,13 +7,16 @@ import {
   Sun, Moon, Utensils, LayoutGrid, RotateCcw, 
   ShoppingCart, Gift, AlertCircle, CheckCircle2, Trash2, X,
   ChefHat, Minus, Plus, MessageCircle, Star, Smartphone, Layers, CreditCard, Banknote,
-  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell
+  Flame, Sparkles, Award, Search, MapPin, Truck, FileText, Wallet, Bell, Eye, EyeOff, User,
+  Clock, Receipt, Percent
 } from 'lucide-react';
 
-import { formatCOP } from '../lib/format';
+import { formatCOP, orderCode } from '../lib/format';
+import { CustomBurgerThumb, IngredientThumb } from './client/ingredientArt';
 import { CustomDatePicker } from '../components/CustomDatePicker';
-import { useStore, Product, ProductComponent, Order } from '../store/almacenAplicacion';
+import { useStore, Product, ProductComponent, Order, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
+import { activarNotificacionesPush, pushDisponible, sincronizarSuscripcionPush } from '../lib/pushNotifications';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import CatalogSection from './client/CatalogSection';
@@ -23,6 +26,7 @@ import CheckoutSection from './client/CheckoutSection';
 import ActiveOrdersSection from './client/ActiveOrdersSection';
 import HistorySection from './client/HistorySection';
 import ProfileSection from './client/ProfileSection';
+import PaymentGatewayModal, { GatewayStep } from './client/PaymentGatewayModal';
 
 export interface SyncedIngredient {
   id: string;
@@ -32,12 +36,14 @@ export interface SyncedIngredient {
   category: string;
   stock: number;
   unit: string;
+  image?: string;
 }
 
 export interface ConfirmModalState {
   isOpen: boolean;
   title: string;
   message: string;
+  details?: React.ReactNode;
   confirmText?: string;
   cancelText?: string;
   type?: 'danger' | 'warning' | 'info' | 'success';
@@ -81,7 +87,7 @@ export interface CartItem {
 export default function ClientDashboard() {
   const { theme, toggleTheme } = useTheme();
     const [activeTab, setActiveTab] = useState('catalog');
-  const [showDeliveryNotification, setShowDeliveryNotification] = useState<string | null>(null);
+  const [showPushPrompt, setShowPushPrompt] = useState(false);
   const [selectedOrderInfo, setSelectedOrderInfo] = useState<Order | null>(null);
   const [reviewingOrderId, setReviewingOrderId] = useState<string | null>(null);
   const [reviewRating, setReviewRating] = useState<number>(0);
@@ -98,41 +104,69 @@ export default function ClientDashboard() {
     onConfirm: () => {},
   });
 
-  // Perfil del Usuario
+  // Perfil del Usuario: placeholder vacío hasta que llegue el registro real del
+  // cliente vía /api/sync (ver useEffect de abajo que lo sobrescribe).
   const [userProfile, setUserProfile] = useState<UserProfileState>({
-    name: 'Andrés Escorcia',
-    email: 'andres@example.com',
-    phone: '3001234567',
-    birthday: '1995-10-15',
-    points: 150,
-    address: 'Calle 10 # 5-20, Centro',
-    notifications: [
-      {
-        id: 'n1',
-        title: '¡Feliz Cumpleaños! 🎂',
-        message: 'Como regalo de cumpleaños, tienes un 15% de descuento automático en tu carrito válido por hoy.',
-        date: new Date().toISOString(),
-        read: false,
-        type: 'promo'
-      },
-      {
-        id: 'n2',
-        title: 'Puntos Acumulados 🌟',
-        message: 'Has ganado 150 puntos por tu última compra. ¡Sigue así!',
-        date: new Date(Date.now() - 86400000).toISOString(),
-        read: false,
-        type: 'system'
-      }
-    ]
+    name: '',
+    email: '',
+    phone: '',
+    birthday: '',
+    points: 0,
+    address: '',
+    notifications: []
   });
   
   const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmNewPasswordInput, setConfirmNewPasswordInput] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const resetPasswordModalFields = () => {
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmNewPasswordInput('');
+    setShowCurrentPassword(false);
+    setShowNewPassword(false);
+    setShowConfirmNewPassword(false);
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentUserId || currentUserId === 'guest') return;
+    if (!currentPasswordInput || !newPasswordInput) {
+      showToast('danger', 'Completa tu contraseña actual y la nueva.', 'Faltan Datos');
+      return;
+    }
+    if (newPasswordInput.length < 8) {
+      showToast('danger', 'La nueva contraseña debe tener al menos 8 caracteres.', 'Contraseña Muy Corta');
+      return;
+    }
+    if (newPasswordInput !== confirmNewPasswordInput) {
+      showToast('danger', 'La confirmación no coincide con la nueva contraseña.', 'No Coinciden');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      await changeClientPassword(currentUserId, currentPasswordInput, newPasswordInput);
+      showToast('success', 'Tu contraseña se actualizó correctamente.', 'Contraseña Actualizada');
+      resetPasswordModalFields();
+      setShowPasswordModal(false);
+    } catch (err) {
+      const mensaje = err instanceof ApiError ? err.message : 'No se pudo cambiar la contraseña.';
+      showToast('danger', mensaje, 'No se Cambió la Contraseña');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
   const [showNotifications, setShowNotifications] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [catalogCategory, setCatalogCategory] = useState('Todas');
 
   // Datos Simulados & Sincronización en Tiempo Real
-  const { products, ingredients, inventory, orders, addOrder, updateOrderStatus, storeConfig, updateStoreConfig, updateOrder, clients, updateClient } = useStore();
+  const { products, ingredients, inventory, orders, addOrder, updateOrderStatus, storeConfig, updateStoreConfig, updateOrder, clients, updateClient, changeClientPassword } = useStore();
   const catalog = products.filter(p => p.active);
   
   const orderHistory = orders.filter(o => o.status === 'Entregado' || o.status === 'entregado');
@@ -226,7 +260,8 @@ export default function ClientDashboard() {
         price: pvpPrice,
         category: ing.category || (invMatch?.category ? invMatch.category.toLowerCase() : 'extra'),
         stock: actualStock,
-        unit: invMatch?.unit || 'Und'
+        unit: invMatch?.unit || 'Und',
+        image: ing.image || invMatch?.image
       });
     });
 
@@ -249,7 +284,8 @@ export default function ClientDashboard() {
           price: pvpPrice,
           category: cat,
           stock: inv.stock,
-          unit: inv.unit || 'Und'
+          unit: inv.unit || 'Und',
+          image: inv.image
         });
       }
     });
@@ -284,33 +320,79 @@ export default function ClientDashboard() {
           points: client.points || prev.points,
           notifications: client.notifications || prev.notifications
         }));
-        if (client.cart) setCart(client.cart as CartItem[]);
+        // [] es "truthy" en JS: sin este length > 0, un cliente nuevo (sin
+        // carrito guardado en BD) siempre pisaba el carrito de invitado con
+        // uno vacio, perdiendo los productos que ya habia agregado al
+        // registrarse o iniciar sesion.
+        if (client.cart && (client.cart as CartItem[]).length > 0) {
+          setCart(client.cart as CartItem[]);
+        }
       }
     }
   }, [currentUserId, clients.length]);
 
+  // Solo el carrito se auto-guarda en cada cambio (HU-15). Los datos del
+  // perfil (nombre/telefono/direccion/fecha) YA NO se mandan aqui en cada
+  // tecla: "Mi Perfil" tiene su propio botón "Guardar Cambios"/"Descartar",
+  // y antes esos botones eran decorativos (solo mostraban un toast, nunca
+  // llamaban a la API) mientras este efecto guardaba en silencio de todas
+  // formas -- confuso, y sin manejo de errores si la llamada fallaba.
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     if (currentUserId && currentUserId !== 'guest') {
-       updateClient(currentUserId, {
-         name: userProfile.name,
-         email: userProfile.email,
-         phone: userProfile.phone,
-         birthday: userProfile.birthday,
-         address: userProfile.address,
-         cart: cart
+       updateClient(currentUserId, { cart }).catch(() => {
+         // Fallo de red guardando el carrito: no interrumpe la compra: al
+         // volver a cambiar el carrito se reintenta guardar solo.
        });
     } else {
        localStorage.setItem('olio_cart', JSON.stringify(cart));
     }
-  }, [cart, userProfile.name, userProfile.email, userProfile.phone, userProfile.birthday, userProfile.address]);
+  }, [cart]);
+
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const handleSaveProfile = async () => {
+    if (!currentUserId || currentUserId === 'guest') return;
+    setIsSavingProfile(true);
+    try {
+      await updateClient(currentUserId, {
+        name: userProfile.name,
+        email: userProfile.email,
+        phone: userProfile.phone,
+        birthday: userProfile.birthday,
+        address: userProfile.address,
+      });
+      showToast('success', 'Tus datos personales se guardaron correctamente.', 'Perfil Actualizado');
+    } catch (err) {
+      const mensaje = err instanceof ApiError ? err.message : 'No se pudo guardar tu perfil.';
+      showToast('danger', mensaje, 'No se Guardó el Perfil');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleDiscardProfile = () => {
+    const client = clients.find(c => c.id === currentUserId);
+    if (client) {
+      setUserProfile(prev => ({
+        ...prev,
+        name: client.name || '',
+        email: client.email || '',
+        phone: client.phone || '',
+        address: client.address || '',
+        birthday: client.birthday || '',
+      }));
+    }
+    showToast('info', 'No se guardó ninguna modificación.', 'Cambios Descartados');
+  };
 
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle'|'processing'|'success'|'error'>('idle');
   const [simulationStep, setSimulationStep] = useState<string>('');
+  const [gatewayStep, setGatewayStep] = useState<GatewayStep>('idle');
 
   const showToast = (type: ToastData['type'] = 'cart', message: string, title?: string) => {
     setToastMessage({ type, message, title });
@@ -430,15 +512,22 @@ export default function ClientDashboard() {
 
   const processPayment = () => {
     setPaymentStatus('processing');
-    
+
     if (paymentMethod === 'online') {
-      setSimulationStep('Conectando con ' + (digitalBank === 'nequi' ? 'Nequi' : digitalBank === 'daviplata' ? 'Daviplata' : 'Bancolombia') + '...');
+      const bankName = digitalBank === 'nequi' ? 'Nequi' : digitalBank === 'daviplata' ? 'Daviplata' : 'Bancolombia';
+      setGatewayStep('connecting');
+      setSimulationStep('Conectando con ' + bankName + '...');
       setTimeout(() => {
+        setGatewayStep('waiting');
         setSimulationStep('Esperando aprobación en tu celular...');
         setTimeout(() => {
-          completePayment();
-        }, 3000);
-      }, 2000);
+          setGatewayStep('verifying');
+          setSimulationStep('Verificando transacción...');
+          setTimeout(() => {
+            completePayment();
+          }, 1200);
+        }, 3200);
+      }, 1600);
     } else {
       setTimeout(() => {
         completePayment();
@@ -448,6 +537,7 @@ export default function ClientDashboard() {
 
   const completePayment = () => {
     if (Math.random() > 0.2 || paymentMethod === 'cash') {
+      if (paymentMethod === 'online') setGatewayStep('approved');
       setSimulationStep(paymentMethod === 'online' ? '¡Pago aprobado exitosamente!' : '¡Pedido confirmado!');
       setTimeout(async () => {
         // HU-04: Acumulación de puntos
@@ -466,6 +556,7 @@ export default function ClientDashboard() {
           pointsEarned,
           status: 'Pendiente' as const, // Global Store status
           paymentMethod: paymentMethod,
+          digitalBank: paymentMethod === 'online' ? digitalBank : null,
           paymentStatus: paymentMethod === 'online' ? 'Pagado' : 'Pendiente Efectivo',
           address: userProfile.address || 'Dirección Cliente Predeterminada',
           clientPhone: userProfile.phone,
@@ -480,6 +571,7 @@ export default function ClientDashboard() {
           const message = err instanceof ApiError ? err.message : 'No se pudo procesar tu pedido. Intenta de nuevo.';
           setPaymentStatus('error');
           setSimulationStep(message);
+          setGatewayStep('idle');
           showToast('danger', message, 'Pedido no procesado');
           setTimeout(() => setPaymentStatus('idle'), 2500);
           return;
@@ -495,19 +587,30 @@ export default function ClientDashboard() {
           setIsCheckingOut(false);
           setPaymentStatus('idle');
           setSimulationStep('');
+          setGatewayStep('idle');
           setActiveTab('activeOrders');
         }, 2000);
       }, 1000);
     } else {
       // Pago rechazado, se mantiene editable
+      setGatewayStep('declined');
       setSimulationStep('El pago fue rechazado. Intenta de nuevo.');
       setPaymentStatus('error');
       showToast('danger', 'El pago fue rechazado por el banco. Intenta de nuevo.', 'Pago no procesado');
       setTimeout(() => {
         setPaymentStatus('idle');
         setSimulationStep('');
+        setGatewayStep('idle');
       }, 3000);
     }
+  };
+
+  const formatOrderDate = (order: Order) => {
+    const d = new Date(String(order.date || '').replace(' ', 'T'));
+    if (isNaN(d.getTime())) return order.date || '';
+    const day = d.toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
+    const time = d.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' });
+    return `${day} · ${time}`;
   };
 
   // RF-08: Recompra en 1 clic con comprobación exhaustiva de stock
@@ -517,65 +620,186 @@ export default function ClientDashboard() {
       return;
     }
 
-    const unavailableItems: string[] = [];
-
-    // Verificar cada ítem del pedido contra catálogo e inventario
-    for (const item of order.items) {
+    // Estado de cada artículo frente al sistema actual: descontinuado (ya no se vende),
+    // con faltantes (ingredientes agotados, se puede pedir bajo aviso) o disponible.
+    type ItemStatus = { discontinued: boolean; missing: string[] };
+    const statuses: ItemStatus[] = order.items.map((item) => {
+      const missing: string[] = [];
       if (item.isCustom) {
-        // Validar ingredientes y extras de la hamburguesa personalizada
-        const stackItems = item.stack || item.extras || [];
-        for (const ing of stackItems) {
-          const invMatch = inventory.find(i => 
-            i.id === ing.id || 
+        for (const ing of item.stack || item.extras || []) {
+          const invMatch = inventory.find(i =>
+            i.id === ing.id ||
             (i.name && ing.name && i.name.trim().toLowerCase() === ing.name.trim().toLowerCase())
           );
-          if (invMatch && invMatch.stock <= 0) {
-            unavailableItems.push(ing.name || 'Ingrediente personalizado');
-          }
+          if (invMatch && invMatch.stock <= 0) missing.push(ing.name || 'Ingrediente');
         }
-      } else {
-        // Validar si el producto de catálogo existe y está activo
-        const catProduct = catalog.find(p => p.id === item.id || p.name.toLowerCase() === item.name.toLowerCase());
-        if (!catProduct || catProduct.active === false) {
-          unavailableItems.push(item.name || 'Producto del menú');
-        } else if (catProduct.ingredients && catProduct.ingredients.length > 0) {
-          // Validar insumos base de la receta no excluidos
-          const removedNames = (item.removed || []).map((r) => ((r.name || r) as string).toLowerCase());
-          for (const baseIng of catProduct.ingredients) {
-            const ingName = (typeof baseIng === 'string' ? baseIng : baseIng.name || '').toLowerCase();
-            if (!removedNames.includes(ingName)) {
-              const invMatch = inventory.find(i => (i.name || '').toLowerCase() === ingName);
-              if (invMatch && invMatch.stock <= 0) {
-                unavailableItems.push(`${catProduct.name} (${invMatch.name} agotado)`);
-              }
-            }
-          }
-        }
+        return { discontinued: false, missing };
       }
-    }
+      const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+      if (!catProduct || catProduct.active === false) return { discontinued: true, missing };
+      const removedNames = (item.removed || []).map((r) => ((r.name || r) as string).toLowerCase());
+      for (const baseIng of catProduct.ingredients || []) {
+        const ingName = (typeof baseIng === 'string' ? baseIng : baseIng.name || '');
+        if (removedNames.includes(ingName.toLowerCase())) continue;
+        const invMatch = inventory.find(i => (i.name || '').toLowerCase() === ingName.toLowerCase());
+        if (invMatch && invMatch.stock <= 0) missing.push(invMatch.name);
+      }
+      for (const ex of item.extras || []) {
+        const invMatch = inventory.find(i => i.id === ex.id || (i.name || '').toLowerCase() === (ex.name || '').toLowerCase());
+        if (invMatch && invMatch.stock <= 0) missing.push(invMatch.name);
+      }
+      return { discontinued: false, missing };
+    });
 
-    if (unavailableItems.length > 0) {
-      showToast(
-        'warning', 
-        `No se puede duplicar el pedido: ${unavailableItems.slice(0, 2).join(', ')} ${unavailableItems.length > 2 ? `y ${unavailableItems.length - 2} más ` : ''}se encuentran actualmente agotados.`, 
-        'Stock No Disponible'
-      );
+    // Precio vigente de cada artículo: los cambios de precio del catálogo o de los
+    // ingredientes se reflejan; los extras conservan el valor con que se pidieron.
+    const oldUnit = (item: Order['items'][number]) => Number(item.finalPrice) || Number(item.price) || Number(item.basePrice) || 0;
+    const newUnits: number[] = order.items.map((item) => {
+      const prev = oldUnit(item);
+      if (item.isCustom) {
+        const stack = item.stack || item.extras || [];
+        if (stack.length === 0) return prev;
+        let sum = 0;
+        for (const ing of stack) {
+          const cur = syncedIngredients.find(si => si.id === ing.id || (si.name || '').toLowerCase() === (ing.name || '').toLowerCase());
+          if (!cur) return prev;
+          sum += cur.price || 0;
+        }
+        return sum;
+      }
+      const cat = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+      if (!cat || item.basePrice === undefined) return prev;
+      return prev + (cat.price - Number(item.basePrice));
+    });
+    const oldShipping = Number(order.shipping) || 0;
+    const shippingChanged = order.shipping !== undefined && oldShipping !== FLAT_SHIPPING_RATE;
+    const priceChanged = order.items.some((it, i) => statuses[i] && !statuses[i].discontinued && newUnits[i] !== oldUnit(it));
+
+    const orderableCount = statuses.filter(st => !st.discontinued).length;
+    if (orderableCount === 0) {
+      showToast('warning', 'Los productos de tu último pedido ya no están disponibles en el menú.', 'Producto descontinuado');
       return;
     }
-    
+    const hasShortage = statuses.some(st => !st.discontinued && st.missing.length > 0);
+    const hasDiscontinued = statuses.some(st => st.discontinued);
+    const hasWarnings = hasShortage || hasDiscontinued || priceChanged || shippingChanged;
+
     setConfirmModal({
       isOpen: true,
       title: 'Repetir Pedido Anterior',
-      message: `¿Deseas duplicar los ${order.items.length} artículos del pedido ${order.id} y añadirlos a tu carrito actual?`,
-      confirmText: 'Sí, agregar al carrito',
+      message: hasWarnings
+        ? `El pedido ${orderCode(order.id)} ya no es igual al de la última vez (agotados, precios o domicilio). Revisa los detalles; puedes pedirlo de todas formas.`
+        : `¿Deseas duplicar los ${order.items.length} artículos del pedido ${orderCode(order.id)} y añadirlos a tu carrito actual?`,
+      details: (
+        <div className="space-y-3">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{formatOrderDate(order)}</p>
+          {order.items.map((item, idx) => {
+            const qty = item.quantity || 1;
+            const unit = Number(item.finalPrice) || Number(item.price) || Number(item.basePrice) || 0;
+            const nameOf = (r: NamedRef | string) => (typeof r === 'string' ? r : r?.name) || '';
+            const layers = (item.stack || item.extras || []).map(nameOf).filter(Boolean);
+            const removed = (item.removed || []).map(nameOf).filter(Boolean);
+            const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+            const image = item.product?.image || catProduct?.image;
+            const recipe = (catProduct?.ingredients || item.product?.ingredients || [])
+              .map(ing => (typeof ing === 'string' ? ing : ing.name || ''))
+              .filter(n => n && !removed.some(r => r.toLowerCase() === n.toLowerCase()));
+            const esArmadaDesdeCero = item.name === 'Hamburguesa Personalizada';
+            const extras = esArmadaDesdeCero ? [] : (item.extras || []).map(nameOf).filter(Boolean);
+            const mods = item.modifications || [];
+            return (
+              <div key={idx} className="rounded-2xl bg-gray-50 dark:bg-stone-900/60 border border-gray-100 dark:border-stone-800 overflow-hidden">
+                {image ? (
+                  <img src={image} alt={item.name} className="w-full h-36 object-cover" />
+                ) : esArmadaDesdeCero && layers.length > 0 ? (
+                  <div className="w-full h-36 flex items-center justify-center bg-white dark:bg-stone-950/40">
+                    <CustomBurgerThumb ingredientNames={layers} size={96} className="!rounded-2xl" />
+                  </div>
+                ) : null}
+                <div className="p-3 space-y-2">
+                  {statuses[idx]?.discontinued && (
+                    <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Este producto ya no se vende. No se agregará al carrito.</p>
+                  )}
+                  {!statuses[idx]?.discontinued && (statuses[idx]?.missing.length ?? 0) > 0 && (
+                    <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Agotado por ahora: {statuses[idx].missing.join(', ')}</p>
+                  )}
+                  <div className="flex justify-between gap-3">
+                    <p className="font-bold text-sm text-gray-900 dark:text-white">{qty}x {item.name || 'Producto'}</p>
+                    <p className="font-black text-sm text-brand-orange whitespace-nowrap text-right">
+                      {!statuses[idx]?.discontinued && newUnits[idx] !== oldUnit(item) && (
+                        <span className="block text-[11px] font-semibold text-gray-400 line-through">{formatCOP(unit * qty)}</span>
+                      )}
+                      {formatCOP((statuses[idx]?.discontinued ? unit : newUnits[idx]) * qty)}
+                    </p>
+                  </div>
+                  {esArmadaDesdeCero && layers.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Armada con</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {layers.map((n, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 text-[11px] font-semibold pr-2 rounded-lg bg-white dark:bg-stone-800 border border-gray-200 dark:border-stone-700 text-gray-700 dark:text-stone-200">
+                            <IngredientThumb name={n} size={20} className="!rounded-md !border-0" />{n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {recipe.length > 0 && (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Lleva</p>
+                      <p className="text-xs text-gray-600 dark:text-stone-400">{recipe.join(', ')}</p>
+                    </div>
+                  )}
+                  {(removed.length > 0 || extras.length > 0) && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {removed.map((n, i) => (
+                        <span key={`r${i}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border border-red-200 dark:border-red-800/40">✕ SIN {n}</span>
+                      ))}
+                      {extras.map((n, i) => (
+                        <span key={`e${i}`} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/40">+ EXTRA {n}</span>
+                      ))}
+                    </div>
+                  )}
+                  {mods.length > 0 && <p className="text-xs text-gray-500 dark:text-stone-400">{mods.join(' · ')}</p>}
+                </div>
+              </div>
+            );
+          })}
+          <div className="pt-2 border-t border-gray-100 dark:border-stone-800 text-sm space-y-1.5">
+            <div className="flex justify-between">
+              <span className="font-medium text-gray-500">Domicilio</span>
+              <span className="font-bold text-gray-900 dark:text-white">
+                {shippingChanged && <span className="text-[11px] font-semibold text-gray-400 line-through mr-2">{formatCOP(oldShipping)}</span>}
+                {formatCOP(FLAT_SHIPPING_RATE)}
+              </span>
+            </div>
+            {shippingChanged && (
+              <p className="text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                La tarifa de domicilio cambió {FLAT_SHIPPING_RATE > oldShipping ? 'y ahora es mayor' : 'y ahora es menor'} que la de tu último pedido.
+              </p>
+            )}
+            <div className="flex justify-between">
+              <span className="font-medium text-gray-500">Total de ese pedido</span>
+              <span className="font-bold text-gray-500">{formatCOP(order.total)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-bold text-gray-900 dark:text-white">Total hoy</span>
+              <span className="font-black text-brand-orange">
+                {formatCOP(order.items.reduce((acc, it, i) => acc + (statuses[i].discontinued ? 0 : newUnits[i] * (it.quantity || 1)), 0) + FLAT_SHIPPING_RATE)}
+              </span>
+            </div>
+          </div>
+        </div>
+      ),
+      confirmText: hasWarnings ? 'Pedir de todas formas' : 'Sí, agregar al carrito',
       cancelText: 'Cancelar',
-      type: 'info',
+      type: hasWarnings ? 'warning' : 'info',
       onConfirm: () => {
         // Clonación de la orden histórica al carrito actual con precios actualizados
-        const clonedItems = order.items.map((i) => ({
+        const clonedItems = order.items.filter((_, idx) => !statuses[idx].discontinued).map((i) => ({
           ...i,
           id: Math.random().toString(36).substr(2, 9),
-          finalPrice: Number(i.finalPrice) || Number(i.price) || Number(i.basePrice) || 0
+          finalPrice: newUnits[order.items.indexOf(i)] || oldUnit(i)
         }));
         setCart([...cart, ...clonedItems] as CartItem[]);
         showToast('cart', '¡Pedido duplicado y listo en tu carrito!', 'Recompra en 1-Clic');
@@ -586,20 +810,50 @@ export default function ClientDashboard() {
   };
 
   // HU-14: Calificar orden
-  
-  // Escuchar si un pedido acaba de ser entregado
+
+  // El aviso de "tu pedido llego" ahora es una notificacion push real del
+  // sistema operativo (ver PedidoService::confirmarEntrega en el backend),
+  // no un banner dentro de la app. Al tocar esa notificacion, el Service
+  // Worker abre la app con ?calificarPedido=<id> en la URL; esto la lee una
+  // sola vez al montar y abre el modal de reseña directamente.
   useEffect(() => {
-    const recentDelivered = orders.find(o => 
-      (o.clientPhone === userProfile.phone || o.client === userProfile.name) && 
-      (o.status === 'Entregado' || o.status === 'entregado') && 
-      !o.rating
-    );
-    if (recentDelivered && !sessionStorage.getItem('notified_' + recentDelivered.id)) {
-      setShowDeliveryNotification(recentDelivered.id);
-      sessionStorage.setItem('notified_' + recentDelivered.id, 'true');
+    const params = new URLSearchParams(window.location.search);
+    const idPedidoACalificar = params.get('calificarPedido');
+    if (idPedidoACalificar) {
+      setReviewingOrderId(idPedidoACalificar);
+      params.delete('calificarPedido');
+      const query = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (query ? `?${query}` : ''));
     }
-  }, [orders, userProfile]);
-  
+  }, []);
+
+  // Activa (o reactiva en silencio) las notificaciones push del navegador.
+  useEffect(() => {
+    if (!pushDisponible()) return;
+
+    if (Notification.permission === 'granted') {
+      sincronizarSuscripcionPush();
+    } else if (Notification.permission === 'default' && !localStorage.getItem('push_prompt_dismissed')) {
+      setShowPushPrompt(true);
+    }
+  }, []);
+
+  const handleActivarPush = async () => {
+    const resultado = await activarNotificacionesPush();
+    setShowPushPrompt(false);
+    if (resultado === 'granted') {
+      showToast('success', 'Te avisaremos apenas tu pedido llegue.', 'Notificaciones Activadas');
+    } else if (resultado === 'denied') {
+      localStorage.setItem('push_prompt_dismissed', 'true');
+    }
+  };
+
+  const handleDismissPushPrompt = () => {
+    setShowPushPrompt(false);
+    localStorage.setItem('push_prompt_dismissed', 'true');
+  };
+
+
   const handleReviewSubmit = () => {
     if (reviewingOrderId && reviewRating > 0) {
       updateOrder(reviewingOrderId, { rating: reviewRating, reviewText });
@@ -613,31 +867,41 @@ export default function ClientDashboard() {
 
   return (
     <>
-      {/* Notificación de Pedido Entregado */}
+      {/* Aviso para activar notificaciones push reales (no es la notificacion
+          de pedido entregado en si -- esa la manda el sistema operativo). */}
       <AnimatePresence>
-        {showDeliveryNotification && (
+        {showPushPrompt && (
           <motion.div
             initial={{ opacity: 0, y: -50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -50 }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-[#151515] p-4 rounded-2xl shadow-2xl border-2 border-brand-orange w-[90%] max-w-md cursor-pointer"
-            onClick={() => {
-              setReviewingOrderId(showDeliveryNotification);
-              setShowDeliveryNotification(null);
-              setActiveTab('history');
-            }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[1000] bg-white dark:bg-[#151515] p-4 rounded-2xl shadow-2xl border-2 border-brand-orange w-[90%] max-w-md"
           >
-            <div className="flex items-center justify-between gap-4">
-              <div className="bg-brand-orange/20 p-2 rounded-full">
-                <CheckCircle2 className="w-6 h-6 text-brand-orange" />
+            <div className="flex items-center gap-4">
+              <div className="bg-brand-orange/20 p-2 rounded-full shrink-0">
+                <Bell className="w-6 h-6 text-brand-orange" />
               </div>
-              <div className="flex-1">
-                <p className="font-bold text-gray-900 dark:text-white">¡Tu pedido ha llegado!</p>
-                <p className="text-sm text-gray-500 dark:text-stone-400">Cuéntanos, ¿cómo estuvo tu comida?</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-gray-900 dark:text-white">Activa las notificaciones</p>
+                <p className="text-sm text-gray-500 dark:text-stone-400">Te avisamos apenas tu pedido llegue, aunque no tengas la app abierta.</p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleActivarPush}
+                    className="px-4 py-2 rounded-xl text-sm font-bold bg-brand-orange text-white hover:bg-[#e66500] transition-colors"
+                  >
+                    Activar
+                  </button>
+                  <button
+                    onClick={handleDismissPushPrompt}
+                    className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-500 dark:text-stone-400 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors"
+                  >
+                    Ahora no
+                  </button>
+                </div>
               </div>
-              <button 
-                onClick={(e) => { e.stopPropagation(); setShowDeliveryNotification(null); }}
-                className="text-gray-400 hover:text-gray-600"
+              <button
+                onClick={handleDismissPushPrompt}
+                className="text-gray-400 hover:text-gray-600 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -653,49 +917,71 @@ export default function ClientDashboard() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-[#151515] w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl p-8"
+              onClick={e => e.stopPropagation()}
+              className="bg-white dark:bg-[#151515] w-full max-w-md rounded-[32px] overflow-hidden shadow-2xl relative"
             >
-              <h3 className="font-bold text-2xl text-center mb-6 text-gray-900 dark:text-white">Califica tu Experiencia</h3>
-              
-              <div className="flex justify-center gap-2 mb-6">
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <button 
-                    key={star} 
-                    onMouseEnter={() => setReviewHoverRating(star)}
-                    onMouseLeave={() => setReviewHoverRating(0)}
-                    onClick={() => setReviewRating(star)}
-                    className="hover:scale-110 transition-transform focus:outline-none"
-                  >
-                    <Star 
-                      className={`w-10 h-10 transition-colors ${(reviewHoverRating || reviewRating) >= star ? 'text-brand-orange fill-current' : 'text-gray-300 dark:text-stone-600'}`} 
-                    />
-                  </button>
-                ))}
+              <button
+                onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
+                className="absolute top-5 right-5 w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:hover:bg-stone-700 flex items-center justify-center text-gray-500 dark:text-stone-400 transition-colors z-10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="pt-9 pb-6 px-8 text-center bg-gradient-to-b from-brand-orange/10 to-transparent">
+                <div className="w-16 h-16 rounded-3xl bg-brand-orange text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-orange/30">
+                  <Sparkles className="w-7 h-7" />
+                </div>
+                <h3 className="font-black text-2xl text-gray-900 dark:text-white">Califica tu Experiencia</h3>
+                <p className="text-sm text-gray-500 dark:text-stone-400 mt-1">Tu opinión nos ayuda a mejorar cada pedido.</p>
               </div>
 
-              <textarea 
-                placeholder="Opcional: Escribe una breve reseña (ej. ¡La hamburguesa estaba deliciosa!)"
-                value={reviewText}
-                onChange={(e) => setReviewText(e.target.value)}
-                className="w-full bg-gray-50 dark:bg-stone-900 border border-gray-200 dark:border-stone-800 rounded-xl p-4 text-sm text-gray-900 dark:text-white h-24 mb-6 resize-none focus:outline-none focus:border-brand-orange"
-              />
+              <div className="px-8 pb-8">
+                <div className="flex justify-center gap-2 mb-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onMouseEnter={() => setReviewHoverRating(star)}
+                      onMouseLeave={() => setReviewHoverRating(0)}
+                      onClick={() => setReviewRating(star)}
+                      className="hover:scale-110 transition-transform focus:outline-none cursor-pointer"
+                    >
+                      <Star
+                        className={`w-10 h-10 transition-colors ${(reviewHoverRating || reviewRating) >= star ? 'text-brand-orange fill-current' : 'text-gray-300 dark:text-stone-600'}`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-center text-xs font-bold uppercase tracking-wider mb-6 h-4 text-brand-orange">
+                  {{1:'Malo', 2:'Regular', 3:'Bueno', 4:'Muy Bueno', 5:'¡Excelente!'}[reviewHoverRating || reviewRating] || ''}
+                </p>
 
-              <div className="flex gap-4">
-                <button 
-                  onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-500 bg-gray-100 dark:bg-stone-800 dark:text-stone-400"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleReviewSubmit}
-                  disabled={reviewRating === 0}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange disabled:opacity-50 transition-opacity"
-                >
-                  Enviar
-                </button>
+                <label className="block text-xs font-bold text-gray-500 dark:text-stone-400 uppercase tracking-wider mb-2">
+                  Reseña (opcional)
+                </label>
+                <textarea
+                  placeholder="Ej. ¡La hamburguesa estaba deliciosa!"
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  className="w-full bg-gray-50 dark:bg-stone-900 border border-gray-200 dark:border-stone-800 rounded-2xl p-4 text-sm text-gray-900 dark:text-white h-24 mb-6 resize-none focus:outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all"
+                />
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); }}
+                    className="flex-1 px-4 py-3.5 rounded-2xl font-bold text-gray-600 bg-gray-100 dark:bg-stone-800 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleReviewSubmit}
+                    disabled={reviewRating === 0}
+                    className="flex-1 px-4 py-3.5 rounded-2xl font-bold text-white bg-brand-orange hover:bg-[#e66500] shadow-md shadow-brand-orange/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none transition-all cursor-pointer"
+                  >
+                    Enviar
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -705,84 +991,206 @@ export default function ClientDashboard() {
       
       {/* Modal de Detalles del Pedido */}
       <AnimatePresence>
-        {selectedOrderInfo && (
+        {(() => {
+          // selectedOrderInfo es una copia tomada al momento del clic; el
+          // polling de FirebaseSync sigue refrescando `orders` cada 2.5s (p.ej.
+          // cuando un domiciliario acepta el pedido), pero esa copia congelada
+          // nunca se enteraba, así que el modal mostraba "sin asignar" aunque ya
+          // hubiera repartidor. Se resuelve siempre contra el pedido vivo.
+          const liveOrder = selectedOrderInfo ? orders.find(o => o.id === selectedOrderInfo.id) || selectedOrderInfo : null;
+          return liveOrder && (
           <motion.div 
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
             onClick={() => setSelectedOrderInfo(null)}
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               onClick={e => e.stopPropagation()}
-              className="bg-white dark:bg-[#151515] w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl p-8 max-h-[90vh] overflow-y-auto"
+              className="bg-white dark:bg-[#18181b] w-full max-w-lg rounded-[28px] overflow-hidden shadow-2xl border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]"
             >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-2xl text-gray-900 dark:text-white">Detalles del Pedido</h3>
-                <button onClick={() => setSelectedOrderInfo(null)} className="text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
+              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between bg-gray-50/50 dark:bg-stone-900/40 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-lg font-bold text-gray-900 dark:text-white">Detalles del Pedido</h3>
+                      <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-orange text-white">
+                        {orderCode(liveOrder.id)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <button onClick={() => setSelectedOrderInfo(null)} className="w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-stone-800 dark:hover:bg-stone-700 flex items-center justify-center text-gray-500 dark:text-stone-400 transition-colors shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
 
-              <div className="space-y-6">
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-1">ID del Pedido</p>
-                  <p className="font-bold text-gray-900 dark:text-white text-lg">{selectedOrderInfo.id}</p>
+              <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                {/* Estado y fecha */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-black px-3 py-1.5 rounded-full bg-brand-orange/10 text-brand-orange">
+                    {liveOrder.status === 'En Preparación' ? <ChefHat className="w-3.5 h-3.5" /> : liveOrder.status === 'En Camino' ? <Truck className="w-3.5 h-3.5" /> : <Receipt className="w-3.5 h-3.5" />}
+                    {liveOrder.status === 'Pagado' ? 'Recibido' : liveOrder.status}
+                  </span>
+                  <span className="text-xs text-gray-400 dark:text-stone-500 font-medium flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" />
+                    {liveOrder.date ? new Date(liveOrder.date).toLocaleString('es-CO', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
                 </div>
-                
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-2">Información del Repartidor</p>
-                  {selectedOrderInfo.status === 'En Camino' || selectedOrderInfo.status === 'Entregado' || selectedOrderInfo.status === 'entregado' ? (
+
+                {/* Dirección de entrega */}
+                {liveOrder.address && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80 flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-0.5">Dirección de Entrega</span>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-stone-200 truncate">{liveOrder.address}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80">
+                  <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">Repartidor</span>
+                  {liveOrder.status === 'En Camino' || liveOrder.status === 'Entregado' ? (
                     <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gray-200 dark:bg-stone-800 rounded-full flex items-center justify-center">
-                        <Star className="w-6 h-6 text-gray-400" />
+                      <div className="w-11 h-11 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-sm shrink-0">
+                        {(liveOrder.driverName || 'RA').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-bold text-gray-900 dark:text-white">{selectedOrderInfo.driverName || 'Repartidor Asignado'}</p>
-                        <p className="text-sm text-gray-500">{selectedOrderInfo.status}</p>
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{liveOrder.driverName || 'Repartidor Asignado'}</p>
+                        <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{liveOrder.driverVehicle || 'Motocicleta'}{liveOrder.driverPlate ? ` • ${liveOrder.driverPlate}` : ''}</p>
                       </div>
                     </div>
                   ) : (
-                    <p className="font-bold text-gray-900 dark:text-white">Aún no se ha asignado un repartidor.</p>
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-2xl bg-gray-200 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                        <User className="w-5 h-5" />
+                      </div>
+                      <p className="text-sm font-semibold text-gray-500 dark:text-stone-400">Aún no se ha asignado un repartidor.</p>
+                    </div>
                   )}
                 </div>
 
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-2">Resumen de Pago</p>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm font-medium">
-                      <span className="text-gray-600 dark:text-stone-400">Método de Pago</span>
-                      <span className="text-gray-900 dark:text-white">{selectedOrderInfo.paymentMethod === 'cash' ? 'Efectivo' : selectedOrderInfo.paymentMethod === 'nequi' ? 'Nequi' : selectedOrderInfo.paymentMethod === 'bancolombia' ? 'Bancolombia' : selectedOrderInfo.paymentMethod === 'daviplata' ? 'DaviPlata' : 'Digital / No especificado'}</span>
-                    </div>
-                    <div className="flex justify-between text-sm font-medium">
-                      <span className="text-gray-600 dark:text-stone-400">Estado de Pago</span>
-                      <span className="text-green-600 uppercase tracking-wider">{selectedOrderInfo.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
-                    </div>
-                    <div className="border-t border-gray-200 dark:border-stone-800 my-2 pt-2 flex justify-between font-bold text-lg">
-                      <span className="text-gray-900 dark:text-white">Total</span>
-                      <span className="text-brand-orange">{formatCOP(selectedOrderInfo.total)}</span>
-                    </div>
+                <div>
+                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                    Productos ({liveOrder.items.length})
+                  </h4>
+                  <div className="space-y-2.5">
+                    {liveOrder.items.map((item, idx: number) => {
+                      const extras = (item.extras || []).map(e => e.name);
+                      const removed = (item.removed || []).map(r => r.name);
+                      // Los items que vienen del backend (pedidos ya creados) no
+                      // traen el objeto `product` embebido, solo `productId` -- hay
+                      // que resolver la imagen contra el catálogo cargado. OJO:
+                      // `isCustom` aquí significa "tuvo extras/removidos", no "no
+                      // tiene producto base" (p.ej. "Street Food sin cebolla" sigue
+                      // teniendo productId real), así que no debe filtrar la búsqueda.
+                      const catProduct = catalog.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || '').toLowerCase());
+                      const itemImage = item.product?.image || catProduct?.image;
+                      return (
+                        <div key={item.id || idx} className="bg-white dark:bg-stone-900 p-3.5 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-stone-800 overflow-hidden shrink-0 relative">
+                            {itemImage ? (
+                              <img src={itemImage} alt={item.name} className="w-full h-full object-cover" />
+                            ) : extras.length > 0 ? (
+                              <CustomBurgerThumb ingredientNames={extras} size={44} className="!rounded-none border-0" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                <ShoppingBag className="w-4 h-4 opacity-50" />
+                              </div>
+                            )}
+                            <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-brand-orange text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white dark:ring-stone-900">
+                              {item.quantity}
+                            </span>
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{item.name}</p>
+                            {(extras.length > 0 || removed.length > 0) && (
+                              <p className="text-[11px] text-gray-500 dark:text-stone-400 truncate mt-0.5">
+                                {extras.length > 0 && <span className="text-emerald-600 dark:text-emerald-400">+{extras.join(', ')}</span>}
+                                {extras.length > 0 && removed.length > 0 && ' · '}
+                                {removed.length > 0 && <span className="text-red-500 dark:text-red-400">sin {removed.join(', ')}</span>}
+                              </p>
+                            )}
+                          </div>
+                          <span className="font-bold text-gray-900 dark:text-white text-sm shrink-0">{formatCOP(item.finalPrice)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                <div className="bg-gray-50 dark:bg-stone-900 p-4 rounded-2xl">
-                  <p className="text-sm text-gray-500 font-medium mb-3">Productos</p>
-                  <div className="space-y-3">
-                    {selectedOrderInfo.items.map((item, idx: number) => (
-                      <div key={item.id || idx} className="flex justify-between text-sm font-medium">
-                        <span className="text-gray-900 dark:text-white">{item.quantity}x {item.name}</span>
-                        <span className="text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
-                      </div>
-                    ))}
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-4 rounded-2xl border border-gray-100 dark:border-stone-800/80 space-y-2.5">
+                  {typeof liveOrder.subtotal === 'number' && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500 dark:text-stone-400 font-medium">Subtotal</span>
+                      <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(liveOrder.subtotal)}</span>
+                    </div>
+                  )}
+                  {typeof liveOrder.shipping === 'number' && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5" /> Envío
+                      </span>
+                      <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(liveOrder.shipping)}</span>
+                    </div>
+                  )}
+                  {!!liveOrder.discount && liveOrder.discount > 0 && (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1.5">
+                        <Percent className="w-3.5 h-3.5" /> Descuento
+                      </span>
+                      <span className="font-bold text-emerald-600 dark:text-emerald-400">-{formatCOP(liveOrder.discount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center text-sm pt-2.5 border-t border-dashed border-gray-200 dark:border-stone-700">
+                    <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                      <Wallet className="w-3.5 h-3.5" /> Método de Pago
+                    </span>
+                    <span className="font-bold text-gray-800 dark:text-stone-200">
+                      {liveOrder.paymentMethod === 'cash'
+                        ? 'Efectivo'
+                        : liveOrder.digitalBank === 'nequi' ? 'Nequi'
+                        : liveOrder.digitalBank === 'daviplata' ? 'Daviplata'
+                        : liveOrder.digitalBank === 'bancolombia' ? 'Bancolombia'
+                        : 'Digital'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-500 dark:text-stone-400 font-medium">Estado de Pago</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400">{liveOrder.paymentMethod === 'cash' ? 'Pago al Entregar' : 'Pagado'}</span>
+                  </div>
+                  <div className="pt-2.5 mt-1 border-t border-dashed border-gray-200 dark:border-stone-700 flex justify-between items-center text-lg font-black text-gray-900 dark:text-white">
+                    <span>Total</span>
+                    <span className="text-brand-orange">{formatCOP(liveOrder.total)}</span>
                   </div>
                 </div>
+
+                {liveOrder.deliveryPin && liveOrder.status !== 'Entregado' && (
+                  <div className="bg-gradient-to-br from-brand-orange/15 to-orange-500/5 p-4 rounded-2xl border border-dashed border-brand-orange/40 flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] text-brand-orange font-bold uppercase tracking-wider block">PIN de Entrega</span>
+                      <p className="text-xl font-black text-brand-orange tracking-[0.2em] leading-tight">{liveOrder.deliveryPin}</p>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-stone-400 text-right max-w-[140px]">Entrégalo al repartidor para confirmar la entrega.</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       <div className="min-h-screen bg-gray-50/50 dark:bg-stone-950 text-gray-900 dark:text-gray-100 font-sans flex transition-colors duration-300">
       {/* Barra Lateral (Sidebar) */}
       <aside className="w-[280px] bg-white dark:bg-[#151515] border-r border-gray-100 dark:border-stone-800 flex-col hidden md:flex shrink-0 z-20 shadow-[4px_0_24px_rgba(0,0,0,0.02)] transition-colors duration-300 h-screen sticky top-0">
-        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50 cursor-pointer" onClick={() => irA('/')}>
+        <div className="h-24 flex items-center px-8 gap-3 mb-2 shrink-0 border-b border-gray-50 dark:border-stone-800/50">
           <div className="w-9 h-9 rounded-xl bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
             <Layers className="w-5 h-5 text-white" />
           </div>
@@ -812,7 +1220,7 @@ export default function ClientDashboard() {
       <main className="flex-1 flex flex-col h-screen overflow-hidden relative bg-gray-50/50 dark:bg-stone-950 pb-20 md:pb-0 min-w-0">
         <header className="h-[70px] md:h-24 border-b border-gray-200 dark:border-white/5 bg-white dark:bg-[#0c0a09] flex items-center justify-between px-4 sm:px-6 md:px-10 shrink-0 sticky top-0 z-50 transition-colors duration-300">
           <div className="flex items-center gap-2">
-            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0 cursor-pointer" onClick={() => irA('/')}>
+            <div className="md:hidden w-8 h-8 rounded-lg bg-brand-orange flex items-center justify-center shadow-lg shadow-brand-orange/20 shrink-0">
               <Layers className="w-4 h-4 text-white" />
             </div>
              {activeTab === 'profile' && <h1 className="text-[18px] md:text-[22px] font-bold text-gray-900 dark:text-white hidden sm:block">Gestión de Cuenta</h1>}
@@ -931,8 +1339,8 @@ export default function ClientDashboard() {
           </div>
         </header>
         
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 min-w-0">
-          <div className="max-w-[1600px] mx-auto w-full">
+        <div className={`flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 min-w-0 ${activeTab === 'builder' ? 'lg:overflow-hidden lg:py-6' : ''}`}>
+          <div className={`max-w-[1600px] mx-auto w-full ${activeTab === 'builder' ? 'lg:h-full' : ''}`}>
             {activeTab === 'catalog' && (
               <CatalogSection
                 catalog={catalog}
@@ -1010,6 +1418,7 @@ export default function ClientDashboard() {
                 activeOrders={activeOrders}
                 setSelectedOrderInfo={setSelectedOrderInfo}
                 setActiveTab={setActiveTab}
+                catalog={catalog}
               />
             )}
             {activeTab === 'history' && (
@@ -1037,6 +1446,7 @@ export default function ClientDashboard() {
                 viewingReceiptOrder={viewingReceiptOrder}
                 setViewingReceiptOrder={setViewingReceiptOrder}
                 storeConfig={storeConfig}
+                catalog={catalog}
               />
             )}
             {activeTab === 'profile' && (
@@ -1044,14 +1454,25 @@ export default function ClientDashboard() {
                 userProfile={userProfile}
                 setUserProfile={setUserProfile}
                 setShowCalendar={setShowCalendar}
-                showToast={showToast}
                 setShowPasswordModal={setShowPasswordModal}
                 handleLogout={handleLogout}
+                onSaveProfile={handleSaveProfile}
+                onDiscardProfile={handleDiscardProfile}
+                isSavingProfile={isSavingProfile}
               />
             )}
           </div>
         </div>
       </main>
+
+      {paymentMethod === 'online' && (
+        <PaymentGatewayModal
+          step={gatewayStep}
+          bank={digitalBank}
+          phone={paymentPhone}
+          amount={cartTotal}
+        />
+      )}
 
       {/* Bottom Navigation for Mobile */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 h-20 bg-white/80 dark:bg-[#0c0a09]/80 backdrop-blur-lg border-t border-gray-200 dark:border-white/5 flex items-center justify-around z-[100] px-4 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] pb-safe">
@@ -1071,31 +1492,49 @@ export default function ClientDashboard() {
         {selectedProduct && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} onClick={() => setSelectedProduct(null)} className="absolute inset-0 bg-stone-900/60 dark:bg-black/80 backdrop-blur-sm" />
-            <motion.div initial={{opacity:0, scale:0.95, y:20}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.95, y:20}} className="relative bg-white dark:bg-[#151515] rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden border border-gray-100 dark:border-stone-800">
-              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex justify-between items-center bg-gray-50/50 dark:bg-stone-800/20">
-                <div>
-                  <h3 className="font-black text-2xl">{selectedProduct.name}</h3>
+            <motion.div initial={{opacity:0, scale:0.95, y:20}} animate={{opacity:1, scale:1, y:0}} exit={{opacity:0, scale:0.95, y:20}} onClick={e => e.stopPropagation()} className="relative bg-white dark:bg-[#151515] rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]">
+              <div className="p-6 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between gap-4 bg-gray-50/50 dark:bg-stone-800/20 shrink-0">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  {selectedProduct.image ? (
+                    <img src={selectedProduct.image} alt={selectedProduct.name} className="w-14 h-14 rounded-2xl object-cover shrink-0 border border-gray-200 dark:border-stone-700" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-2xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                      <ShoppingBag className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <h3 className="font-black text-xl text-gray-900 dark:text-white truncate">{selectedProduct.name}</h3>
+                    <p className="text-sm font-bold text-brand-orange mt-0.5">{formatCOP(selectedProduct.price)}</p>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedProduct(null)} className="p-3 hover:bg-gray-200 dark:hover:bg-stone-800 rounded-full transition-colors bg-black/5 dark:bg-white/5"><X className="w-5 h-5"/></button>
+                <button onClick={() => setSelectedProduct(null)} className="w-10 h-10 shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-stone-800 flex items-center justify-center transition-colors bg-black/5 dark:bg-white/5 cursor-pointer"><X className="w-5 h-5"/></button>
               </div>
-                
-              <div className="p-6 space-y-8 max-h-[60vh] overflow-y-auto">
+
+              <div className="p-6 space-y-8 overflow-y-auto flex-1">
                 {/* HU-08.1: Exclusión (SIN) */}
-                <div className="space-y-4">
-                  <h4 className="font-bold text-gray-900 dark:text-white uppercase tracking-wider text-sm flex items-center gap-2"><Minus className="w-4 h-4"/> Retirar Ingredientes</h4>
+                <div className="space-y-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-950/30 text-red-500 flex items-center justify-center shrink-0">
+                      <Minus className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-black text-gray-900 dark:text-white uppercase tracking-wider text-sm">Retirar Ingredientes</h4>
+                  </div>
                   {selectedProduct.ingredients && selectedProduct.ingredients.length > 0 ? (
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                       {selectedProduct.ingredients.map((ing) => {
                         const isRemoved = customRemoved.find(r => r.id === ing.id);
                         return (
-                          <div key={ing.id} className="flex items-center justify-between p-4 border border-gray-100 dark:border-stone-800 rounded-[20px] bg-white dark:bg-[#151515] shadow-sm">
-                            <span className={`font-medium ${isRemoved ? 'line-through text-gray-400' : 'text-gray-700 dark:text-stone-300'}`}>{ing.name}</span>
-                            <button 
+                          <div key={ing.id} className="flex items-center justify-between p-3.5 border border-gray-100 dark:border-stone-800 rounded-2xl bg-gray-50/60 dark:bg-stone-900/40">
+                            <span className={`flex items-center gap-3 font-semibold text-sm ${isRemoved ? 'line-through text-gray-400' : 'text-gray-700 dark:text-stone-300'}`}>
+                              <IngredientThumb name={ing.name} image={syncedIngredients.find(si => si.id === ing.id)?.image} size={40} className={isRemoved ? 'grayscale opacity-60' : ''} />
+                              {ing.name}
+                            </span>
+                            <button
                               onClick={() => {
                                 if (isRemoved) setCustomRemoved(customRemoved.filter(r => r.id !== ing.id));
                                 else setCustomRemoved([...customRemoved, ing]);
                               }}
-                              className={`px-4 py-2 text-sm rounded-[20px] font-bold transition-colors ${isRemoved ? 'bg-black/5 dark:bg-white/5 text-gray-600 dark:text-stone-300 hover:bg-black/5 dark:hover:bg-white/10' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
+                              className={`px-3.5 py-1.5 text-xs rounded-xl font-bold transition-colors cursor-pointer ${isRemoved ? 'bg-gray-200 dark:bg-stone-700 text-gray-600 dark:text-stone-300 hover:bg-gray-300 dark:hover:bg-stone-600' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40'}`}
                             >
                               {isRemoved ? 'Revertir' : 'Quitar (Sin)'}
                             </button>
@@ -1104,36 +1543,50 @@ export default function ClientDashboard() {
                       })}
                     </div>
                   ) : (
-                    <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02]/50 rounded-[20px] border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">Este producto base no tiene restricciones.</div>
+                    <div className="p-4 bg-gray-50/60 dark:bg-stone-900/40 rounded-2xl border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">Este producto base no tiene restricciones.</div>
                   )}
                 </div>
 
-                {/* HU-08.2: Adición (EXTRA) sincronizada con inventario */}
-                <div className="space-y-4 pt-4">
-                  <h4 className="font-bold text-gray-900 dark:text-white uppercase tracking-wider text-sm flex items-center gap-2"><Plus className="w-4 h-4"/> Añadir Extras</h4>
-                  {syncedIngredients.filter(i => i.category === 'extra' || i.category === 'carnes' || i.category === 'lacteos' || i.category === 'embutidos').length > 0 ? (
-                    <div className="space-y-3">
-                      {syncedIngredients.filter(i => i.category === 'extra' || i.category === 'carnes' || i.category === 'lacteos' || i.category === 'embutidos').map(extra => {
+                {/* HU-08.2: Adición (EXTRA) sincronizada con inventario -- cualquier
+                    ingrediente del catálogo que no forme ya parte de la receta base
+                    del producto puede añadirse como extra. Antes se filtraba por un
+                    nombre de categoría fijo en minúscula ('carnes', 'lacteos'...)
+                    que nunca coincidía con las categorías reales tal como las
+                    escribe el admin en Inventario ("Carnes & Proteínas", "Quesos &
+                    Lácteos"...), así que la lista de extras siempre salía vacía. */}
+                <div className="space-y-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 flex items-center justify-center shrink-0">
+                      <Plus className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-black text-gray-900 dark:text-white uppercase tracking-wider text-sm">Añadir Extras</h4>
+                  </div>
+                  {syncedIngredients.filter(i => !selectedProduct.ingredients?.some(base => base.id === i.id)).length > 0 ? (
+                    <div className="space-y-2.5">
+                      {syncedIngredients.filter(i => !selectedProduct.ingredients?.some(base => base.id === i.id)).map(extra => {
                         const isAdded = customExtras.find(e => e.id === extra.id);
                         const isOutOfStock = extra.stock !== undefined && extra.stock <= 0;
                         return (
-                          <div key={extra.id} className={`flex items-center justify-between p-4 border border-gray-100 dark:border-stone-800 rounded-[20px] bg-white dark:bg-[#151515] shadow-sm ${isOutOfStock ? 'opacity-50' : ''}`}>
-                            <div>
+                          <div key={extra.id} className={`flex items-center justify-between p-3.5 border border-gray-100 dark:border-stone-800 rounded-2xl bg-gray-50/60 dark:bg-stone-900/40 ${isOutOfStock ? 'opacity-50' : ''}`}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <IngredientThumb name={extra.name} image={extra.image} size={48} />
+                              <div>
                               <div className="flex items-center gap-2">
-                                <p className="font-bold text-gray-800 dark:text-stone-200">{extra.name}</p>
+                                <p className="font-bold text-sm text-gray-800 dark:text-stone-200">{extra.name}</p>
                                 {isOutOfStock && (
                                   <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400">AGOTADO</span>
                                 )}
                               </div>
                               <p className="text-sm font-black text-brand-orange mt-0.5">+{formatCOP(extra.price)}</p>
+                              </div>
                             </div>
-                            <button 
+                            <button
                               disabled={isOutOfStock && !isAdded}
                               onClick={() => {
                                 if (isAdded) setCustomExtras(customExtras.filter(e => e.id !== extra.id));
                                 else setCustomExtras([...customExtras, extra]);
                               }}
-                              className={`px-4 py-2 text-sm rounded-[20px] font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isAdded ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-md hover:bg-gray-800 dark:hover:bg-gray-100'}`}
+                              className={`px-3.5 py-1.5 text-xs rounded-xl font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${isAdded ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-stone-900 dark:bg-white text-white dark:text-stone-900 shadow-sm hover:bg-gray-800 dark:hover:bg-gray-100'}`}
                             >
                               {isAdded ? 'Quitar' : isOutOfStock ? 'Agotado' : 'Añadir Extra'}
                             </button>
@@ -1142,16 +1595,16 @@ export default function ClientDashboard() {
                       })}
                     </div>
                   ) : (
-                    <div className="p-4 bg-black/[0.02] dark:bg-white/[0.02]/50 rounded-[20px] border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">No hay extras en inventario actualmente.</div>
+                    <div className="p-4 bg-gray-50/60 dark:bg-stone-900/40 rounded-2xl border border-gray-100 dark:border-stone-800 text-sm font-medium text-gray-500">No hay extras disponibles en inventario actualmente.</div>
                   )}
                 </div>
 
               </div>
-                
-              <div className="p-6 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-[#151515]">
-                <button 
+
+              <div className="p-6 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-[#151515] shrink-0">
+                <button
                   onClick={addToCartFromCatalog}
-                  className="w-full bg-brand-orange text-white py-4 rounded-[20px] font-black text-lg hover:bg-brand-orange/90 flex justify-between px-8 shadow-xl shadow-brand-orange/20 transition-all active:scale-[0.98]"
+                  className="w-full bg-brand-orange text-white py-4 rounded-[20px] font-black text-lg hover:bg-[#e66500] flex justify-between px-8 shadow-xl shadow-brand-orange/20 transition-all active:scale-[0.98] cursor-pointer"
                 >
                   <span>{editingCartItemId ? 'Actualizar Pedido' : 'Confirmar Selección'}</span>
                   <span>{formatCOP(selectedProduct.price + customExtras.reduce((s, e) => s + (e.price || 2000), 0))}</span>
@@ -1175,20 +1628,42 @@ export default function ClientDashboard() {
               <div className="p-6 space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Contraseña Actual</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showCurrentPassword ? 'text' : 'password'} value={currentPasswordInput} onChange={e => setCurrentPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showCurrentPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Nueva Contraseña</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showNewPassword ? 'text' : 'password'} value={newPasswordInput} onChange={e => setNewPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-stone-400 mt-1.5">Mínimo 8 caracteres.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Confirmar Nueva Contraseña</label>
-                  <input type="password" placeholder="••••••••" className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                  <div className="relative">
+                    <input type={showConfirmNewPassword ? 'text' : 'password'} value={confirmNewPasswordInput} onChange={e => setConfirmNewPasswordInput(e.target.value)} placeholder="••••••••" className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-[#151515] text-sm outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all text-gray-900 dark:text-white" />
+                    <button type="button" onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)} tabIndex={-1} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors cursor-pointer">
+                      {showConfirmNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="p-6 border-t border-gray-100 dark:border-stone-800 flex gap-4">
-                <button onClick={() => setShowPasswordModal(false)} className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors min-w-0">Cancelar</button>
-                <button onClick={() => { setShowPasswordModal(false); showToast('info', 'Contraseña actualizada exitosamente'); }} className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors shadow-md min-w-0">Actualizar</button>
+                <button onClick={() => { setShowPasswordModal(false); resetPasswordModalFields(); }} className="flex-1 px-4 py-3 rounded-xl font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 transition-colors min-w-0 cursor-pointer">Cancelar</button>
+                <button
+                  onClick={handleChangePassword}
+                  disabled={isChangingPassword || !currentPasswordInput || !newPasswordInput || !confirmNewPasswordInput}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold text-white bg-brand-orange hover:bg-brand-orange/90 transition-colors shadow-md min-w-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isChangingPassword ? 'Actualizando...' : 'Actualizar'}
+                </button>
               </div>
             </motion.div>
           </div>
@@ -1201,6 +1676,7 @@ export default function ClientDashboard() {
         isOpen={confirmModal.isOpen}
         title={confirmModal.title}
         message={confirmModal.message}
+        details={confirmModal.details}
         confirmText={confirmModal.confirmText}
         cancelText={confirmModal.cancelText}
         type={confirmModal.type}

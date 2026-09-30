@@ -85,9 +85,11 @@ function configurarSeguridadHttp() {
     // pierde el prefijo de subcarpeta), los estilos inline que React/lucide-
     // react aplican via el atributo style, la hoja de Google Fonts, las
     // imagenes de producto servidas desde Unsplash, y los tiles del mapa
-    // (Leaflet + CARTO, {s}.basemaps.cartocdn.com -- {s} es un subdominio
-    // variable de CARTO, de ahi el comodin). curl nunca lo detecto porque no
-    // ejecuta JS ni aplica CSP -- solo aparece en un navegador real.
+    // (Leaflet + tiles gratis de OpenStreetMap, {s}.tile.openstreetmap.org --
+    // {s} es un subdominio variable de OSM, de ahi el comodin; no requieren
+    // API key, a diferencia de los tiles de CARTO que se usaban antes). curl
+    // nunca lo detecto porque no ejecuta JS ni aplica CSP -- solo aparece en
+    // un navegador real.
     // connect-src: los paneles de admin/domiciliario hacen fetch() directo
     // (sin pasar por el backend PHP) a OSRM (trazar la ruta en el mapa) y a
     // Nominatim (geocodificar la direccion del pedido a lat/lng). Sin esto,
@@ -97,7 +99,7 @@ function configurarSeguridadHttp() {
         "script-src 'self' 'unsafe-inline'; " .
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " .
         "font-src 'self' https://fonts.gstatic.com; " .
-        "img-src 'self' data: https://images.unsplash.com https://*.basemaps.cartocdn.com; " .
+        "img-src 'self' data: https://images.unsplash.com https://*.tile.openstreetmap.org; " .
         "connect-src 'self' https://router.project-osrm.org https://nominatim.openstreetmap.org"
     );
 
@@ -115,13 +117,6 @@ function configurarSeguridadHttp() {
     }
 }
 
-/** Genera un UUID v4 (para los inserts que lo necesiten). */
-function generarUuid() {
-    $datos = random_bytes(16);
-    $datos[6] = chr(ord($datos[6]) & 0x0f | 0x40);
-    $datos[8] = chr(ord($datos[8]) & 0x3f | 0x80);
-    return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($datos), 4));
-}
 
 /**
  * El correo debe ser unico entre las 4 tablas de cuentas (ADMINISTRADOR,

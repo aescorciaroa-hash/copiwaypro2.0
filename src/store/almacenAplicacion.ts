@@ -33,6 +33,7 @@ export interface InventoryItem {
   category?: string;
   supplier?: string;
   notes?: string;
+  image?: string;
   createdAt?: string;
 }
 export interface InventoryLog {
@@ -61,7 +62,11 @@ export interface Staff {
   destCoords?: [number, number] | null;
   plate?: string;
   vehicle?: string;
+  vehicleModel?: string;
   baseCash?: number;
+  pin?: string;
+  hasPin?: boolean;
+  createdBy?: string | null;
 }
 
 export interface NamedRef {
@@ -87,6 +92,7 @@ export interface OrderItem {
 
 export interface Order {
   paymentMethod?: string;
+  digitalBank?: 'nequi' | 'daviplata' | 'bancolombia' | null;
   paymentStatus?: string;
   id: string;
   status: 'Pendiente' | 'En Preparación' | 'Listos' | 'En Camino' | 'Entregado' | 'Pagado' | 'entregado';
@@ -119,6 +125,7 @@ export interface Ingredient {
   price: number;
   category: string;
   stock?: number;
+  image?: string;
 }
 
 export interface Notification {
@@ -160,22 +167,20 @@ export interface StoreConfig {
   categories?: string[];
 }
 
-export const DEFAULT_MENU_CATEGORIES = [
-  'Hamburguesas de Pan',
-  'Hamburguesas de Patacón',
-  'Perros Calientes',
-  'Mazorcadas',
-  'Salchipapas',
-  'Chorizos',
-  'Bebidas',
-  'Adiciones / Extras'
-];
+// Antes traia 8 categorias de ejemplo ("Hamburguesas de Pan", "Perros
+// Calientes", etc.) que se mostraban como fallback en Landing/MenuSection
+// cada vez que storeConfig.categories venia vacio -- el admin veia un menu
+// "lleno" de categorias que nunca creo. Vacio a proposito: sin categorias
+// reales, la UI debe mostrar un estado vacio real, no datos inventados.
+export const DEFAULT_MENU_CATEGORIES: string[] = [];
 
 interface AppState {
   products: Product[];
   inventory: InventoryItem[];
   staff: Staff[];
   orders: Order[];
+  /** true tras el primer setOrders con datos reales del servidor (ver FirebaseSync). Evita que la UI confunda la carga inicial de pedidos con una orden nueva. */
+  ordersSynced: boolean;
   ingredients: Ingredient[];
   clients: Client[];
   storeConfig: StoreConfig;
@@ -189,6 +194,7 @@ interface AppState {
 
   setInventory: (inventory: InventoryItem[]) => void;
   addInventoryItem: (item: InventoryItem) => Promise<void>;
+  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
   updateInventoryStock: (id: string, amount: number) => Promise<void>;
   setInventoryLogs: (logs: InventoryLog[]) => void;
   addInventoryLog: (log: InventoryLog) => Promise<void>;
@@ -197,11 +203,12 @@ interface AppState {
   setStaff: (staff: Staff[]) => void;
   addStaff: (employee: Staff) => Promise<void>;
   updateStaff: (id: string, updates: Partial<Staff>) => Promise<void>;
-  deleteStaff: (id: string) => Promise<void>;
+  deleteStaff: (id: string, role?: string) => Promise<void>;
 
   setOrders: (orders: Order[]) => void;
   addOrder: (order: Order) => Promise<void>;
   updateOrderStatus: (id: string, status: Order['status']) => Promise<void>;
+  takeOrder: (id: string) => Promise<void>;
   driverName?: string;
   updateOrder: (id: string, updates: Partial<Order>) => Promise<void>;
   deleteOrder: (id: string) => Promise<void>;
@@ -213,6 +220,7 @@ interface AppState {
   setClients: (clients: Client[]) => void;
   addClient: (client: Client) => Promise<void>;
   updateClient: (id: string, updates: Partial<Client>) => Promise<void>;
+  changeClientPassword: (id: string, currentPassword: string, newPassword: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
 
   setStoreConfig: (config: StoreConfig) => void;
@@ -253,6 +261,7 @@ export const useStore = create<AppState>()((set, get) => ({
   inventory: [],
   staff: [],
   orders: [],
+  ordersSynced: false,
   ingredients: [],
   clients: [],
   inventoryLogs: [],
@@ -284,6 +293,10 @@ export const useStore = create<AppState>()((set, get) => ({
     const created = await api.post<InventoryItem>('/inventory', item);
     set(state => ({ inventory: [created, ...state.inventory] }));
   },
+  updateInventoryItem: async (id, updates) => {
+    const updated = await api.put<InventoryItem>(`/inventory/${id}`, updates);
+    set(state => ({ inventory: state.inventory.map(i => i.id === id ? updated : i) }));
+  },
   updateInventoryStock: async (id, amount) => {
     const updated = await api.patch<InventoryItem>(`/inventory/${id}/stock`, { amount });
     set(state => ({ inventory: state.inventory.map(i => i.id === id ? updated : i) }));
@@ -306,20 +319,28 @@ export const useStore = create<AppState>()((set, get) => ({
   },
   updateStaff: async (id, updates) => {
     const updated = await api.put<Staff>(`/staff/${id}`, updates);
-    set(state => ({ staff: state.staff.map(s => s.id === id ? updated : s) }));
+    // id_ayudante e id_domiciliario son autoincrementales POR TABLA: un
+    // "Ayudante de cocina" y un "Domiciliario" distintos pueden compartir el
+    // mismo id numerico. Filtrar solo por id aqui actualizaria en el estado
+    // local (por error) a cualquier otro miembro de staff con ese mismo id
+    // pero de otro rol -- por eso tambien se exige que coincida el role.
+    set(state => ({ staff: state.staff.map(s => (s.id === id && s.role === updated.role) ? updated : s) }));
   },
-  deleteStaff: async (id) => {
+  deleteStaff: async (id, role) => {
     // Soft delete en el servidor (se conserva el historial, regla de negocio 10).
-    await api.delete(`/staff/${id}`);
-    set(state => ({ staff: state.staff.map(s => s.id === id ? { ...s, active: false } : s) }));
+    // role se manda para desambiguar el mismo id entre las dos tablas de staff
+    // (ver comentario de updateStaff arriba y Personal::eliminarSuave en el backend).
+    await api.delete(`/staff/${id}${role ? `?role=${encodeURIComponent(role)}` : ''}`);
+    set(state => ({ staff: state.staff.map(s => (s.id === id && (!role || s.role === role)) ? { ...s, active: false } : s) }));
   },
 
-  setOrders: (orders) => set({ orders }),
+  setOrders: (orders) => set({ orders, ordersSynced: true }),
   addOrder: async (order) => {
     const payload = {
       items: (order.items || []).map(toApiOrderItem),
       address: order.address,
       paymentMethod: order.paymentMethod === 'online' ? 'online' : 'cash',
+      bank: order.paymentMethod === 'online' ? order.digitalBank : undefined,
     };
     const created = await api.post<Order>('/orders', payload);
     set(state => ({ orders: [created, ...state.orders] }));
@@ -332,6 +353,10 @@ export const useStore = create<AppState>()((set, get) => ({
       return;
     }
     const updated = await api.patch<Order>(`/orders/${encodeURIComponent(id)}/${endpoint}`);
+    set(state => ({ orders: state.orders.map(o => o.id === id ? updated : o) }));
+  },
+  takeOrder: async (id) => {
+    const updated = await api.patch<Order>(`/orders/${encodeURIComponent(id)}/take`);
     set(state => ({ orders: state.orders.map(o => o.id === id ? updated : o) }));
   },
   updateOrder: async (id, updates) => {
@@ -366,6 +391,9 @@ export const useStore = create<AppState>()((set, get) => ({
   updateClient: async (id, updates) => {
     const updated = await api.put<Client>(`/clients/${id}`, updates);
     set(state => ({ clients: state.clients.map(c => c.id === id ? updated : c) }));
+  },
+  changeClientPassword: async (id, currentPassword, newPassword) => {
+    await api.put(`/clients/${id}/password`, { currentPassword, newPassword });
   },
   deleteClient: async (id) => {
     set(state => ({ clients: state.clients.filter(c => c.id !== id) }));

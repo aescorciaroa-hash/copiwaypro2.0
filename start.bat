@@ -24,6 +24,18 @@ if not exist "public\index.html" (
     echo [AVISO] El frontend aun no esta compilado. Ejecuta install.bat o "npm run build" primero.
 )
 
+rem Windows (Laragon) no trae de fabrica el openssl.cnf en la ruta que OpenSSL
+rem busca por defecto: openssl_pkey_new() con curvas EC (necesario para VAPID,
+rem las notificaciones push) falla en silencio sin esto. OPENSSL_CONF debe
+rem existir en el entorno ANTES de que arranque php.exe (un putenv() dentro de
+rem PHP ya es demasiado tarde), asi que se fija aqui, no en el codigo PHP.
+if not defined OPENSSL_CONF (
+    for %%F in ("%PHP_EXE%") do set "PHP_DIR=%%~dpF"
+    if exist "!PHP_DIR!extras\ssl\openssl.cnf" (
+        set "OPENSSL_CONF=!PHP_DIR!extras\ssl\openssl.cnf"
+    )
+)
+
 echo Sirviendo CopiwayPRO en http://localhost:8000/
 echo ^(Ctrl+C para detener^)
 echo.

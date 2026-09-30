@@ -36,7 +36,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, _retriedCsrf = false): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json';
@@ -60,6 +60,30 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = isJson ? await res.json() : null;
 
   if (!res.ok) {
+    // 419 = token CSRF vencido o ausente (ej. la sesion del navegador
+    // caducó del lado del servidor pero la pagina seguia con el token
+    // viejo en memoria). En vez de mostrarle al usuario un error tecnico
+    // por algo que no hizo mal, se pide un token fresco y se reintenta la
+    // misma peticion una sola vez de forma transparente.
+    if (res.status === 419 && !_retriedCsrf && path !== '/auth/csrf') {
+      try {
+        const fresh = await request<{ csrfToken: string }>('GET', '/auth/csrf');
+        setCsrfToken(fresh.csrfToken);
+        return request<T>(method, path, body, true);
+      } catch {
+        // Sin conectividad para refrescar el token: se cae al error original.
+      }
+    }
+    // 401 en cualquier endpoint que NO sea de /auth/*: la sesion PHP se
+    // perdio (expiro, GC del servidor, cuenta desactivada) mientras el SPA
+    // seguia abierto sin recargar. /auth/* maneja su propio 401 en su UI
+    // (ej. contraseña incorrecta en el login) y nunca debe disparar esto.
+    // Recargar la pagina actual hace que PHP vuelva a evaluar la sesion en
+    // despacharPagina() y redirija de verdad a /login, en vez de dejar al
+    // usuario viendo un toast de error sin saber que debe volver a entrar.
+    if (res.status === 401 && !path.startsWith('/auth/')) {
+      window.location.reload();
+    }
     throw new ApiError(data?.error || `Error ${res.status}`, res.status, data?.errors);
   }
 
@@ -79,6 +103,41 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body ?? {}),
   delete: <T>(path: string) => request<T>('DELETE', path),
 };
+
+/**
+ * Sube un archivo real (multipart/form-data) en vez de mandarlo como JSON.
+ * Usado para fotos de producto: antes se convertían a base64 y se guardaban
+ * directo en la base de datos, lo que truncaba/reventaba la columna con
+ * cualquier imagen real. Ahora el archivo se sube y solo se guarda su URL.
+ */
+export async function subirArchivo(path: string, campo: string, file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append(campo, file);
+
+  const headers: Record<string, string> = {};
+  if (csrfToken) {
+    headers['X-CSRF-Token'] = csrfToken;
+  }
+
+  const res = await fetch(BASE_URL + path, {
+    method: 'POST',
+    headers,
+    credentials: 'include',
+    body: formData,
+  });
+
+  const isJson = res.headers.get('content-type')?.includes('application/json');
+  const data = isJson ? await res.json() : null;
+
+  if (!res.ok) {
+    if (res.status === 401) {
+      window.location.reload();
+    }
+    throw new ApiError(data?.error || `Error ${res.status}`, res.status, data?.errors);
+  }
+
+  return data as { url: string };
+}
 
 /**
  * Poll corto con ETag (sustituye a los onSnapshot de Firestore). Devuelve

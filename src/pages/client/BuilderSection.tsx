@@ -3,6 +3,7 @@ import { ChefHat, Plus, RotateCcw, X } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
 import { CartItem, SyncedIngredient } from '../ClientDashboard';
+import { artKind, BUN_KINDS, IngredientThumb, renderArtLayer, renderBunBottom, renderBunTop } from './ingredientArt';
 
 interface BuilderSectionProps {
   builderStack: SyncedIngredient[];
@@ -27,6 +28,28 @@ export default function BuilderSection({
   setActiveTab,
   showToast,
 }: BuilderSectionProps) {
+  // La hamburguesa se escala para caber siempre completa en el escenario, sin scroll.
+  const stageRef = React.useRef<HTMLDivElement>(null);
+  const burgerRef = React.useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = React.useState(1);
+
+  React.useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const burger = burgerRef.current;
+    if (!stage || !burger) return;
+    const update = () => {
+      const h = burger.offsetHeight;
+      const w = burger.offsetWidth;
+      if (!h || !w) return;
+      setFitScale(Math.min(1, stage.clientHeight / h, stage.clientWidth / w));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(stage);
+    ro.observe(burger);
+    return () => ro.disconnect();
+  }, [builderStack, syncedIngredients.length]);
+
   const getIngredientVisual = (name: string, index: number, variant: 'top' | 'bottom' | 'standard' = 'standard') => {
     const zIndex = 15 + index;
     const lower = (name || '').toLowerCase();
@@ -273,8 +296,14 @@ export default function BuilderSection({
 
   // HU-06: Creador Interactivo de Hamburguesas
   
-  const renderBurgerLayerWithStock = (name: string, index: number, variant: 'top' | 'bottom' | 'standard' = 'standard', isOutOfStock: boolean = false) => {
-    const layer = getIngredientVisual(name, index, variant);
+  const renderBurgerLayerWithStock = (name: string, index: number, variant: 'top' | 'bottom' | 'standard' = 'standard', isOutOfStock: boolean = false, image?: string, node?: React.ReactElement) => {
+    // Con foto real del insumo, la capa se muestra como la foto; los panes conservan su silueta (una sola foto no se puede partir en tapa y base).
+    const layer = image && variant === 'standard' ? (
+      <div key={`img-${index}`} style={{ zIndex: 15 + index }} className="relative w-[240px] h-[38px] rounded-2xl overflow-hidden drop-shadow-lg border-2 border-white/70 dark:border-stone-700 transition-all select-none my-[-4px]">
+        <img src={image} alt={name} className="w-full h-full object-cover" />
+        <span className="absolute inset-0 flex items-center justify-center bg-black/30 text-[10px] font-black uppercase tracking-wider text-white">{name}</span>
+      </div>
+    ) : (node ?? getIngredientVisual(name, index, variant));
     if (!layer || !React.isValidElement(layer)) return layer;
     
     if (isOutOfStock) {
@@ -298,7 +327,10 @@ export default function BuilderSection({
     const pataconBun = builderStack.find(ing => (ing.name || '').toLowerCase().includes('patac'));
 
     // Fillings in bottom-to-top order (reverse of stack for natural burger layering)
+    const artBun = builderStack.find(ing => BUN_KINDS.includes(artKind(ing.name) as any));
+    const artBunKind = artBun ? (artKind(artBun.name) as 'brioche' | 'pretzel') : null;
     const fillings = builderStack.filter(ing => 
+      !BUN_KINDS.includes(artKind(ing.name) as any) &&
       !ing.name.toLowerCase().includes('hamburguesa') && 
       !ing.name.toLowerCase().includes('perro') && 
       !ing.name.toLowerCase().includes('patac')
@@ -309,7 +341,7 @@ export default function BuilderSection({
     const totalLayers = builderStack.length;
 
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 lg:h-full lg:flex lg:flex-col">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-[28px] font-bold tracking-tight text-gray-900 dark:text-white">Arma tu Burger</h2>
@@ -333,9 +365,9 @@ export default function BuilderSection({
             <p className="text-sm text-gray-400 mt-2">Nuestros cocineros están reabasteciendo la cocina.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 min-h-[560px]">
+          <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[minmax(0,1fr)] gap-6 h-[70vh] lg:h-auto lg:flex-1 lg:min-h-0">
             {/* Visual Burger Canvas / Stage */}
-            <div className="lg:col-span-8 bg-white dark:bg-[#151515] rounded-[28px] border border-gray-100 dark:border-stone-800 flex flex-col items-center justify-between p-6 relative overflow-hidden shadow-sm">
+            <div className="lg:col-span-8 bg-white dark:bg-[#151515] rounded-[28px] border border-gray-100 dark:border-stone-800 flex flex-col items-center justify-between p-4 relative overflow-hidden shadow-sm min-h-0">
               {/* Header Info */}
               <div className="w-full flex justify-between items-center z-20">
                 <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -349,32 +381,34 @@ export default function BuilderSection({
               </div>
 
               {/* Burger Stack Stage */}
-              <div className="flex-1 w-full flex flex-col items-center justify-center py-6 min-h-[340px] relative">
+              <div ref={stageRef} className="flex-1 w-full min-h-0 overflow-hidden relative">
                 {builderStack.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center text-center max-w-sm">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                     <div className="w-16 h-16 mb-3 border-2 border-dashed border-brand-orange/40 rounded-full flex items-center justify-center bg-brand-orange/5 text-brand-orange">
                       <Plus className="w-7 h-7" />
                     </div>
                     <h4 className="font-bold text-gray-900 dark:text-white text-base">Comienza a armar</h4>
-                    <p className="text-xs text-gray-500 dark:text-stone-400 mt-1">Selecciona tus ingredientes en la lista lateral para ver cómo toma forma.</p>
+                    <p className="text-xs text-gray-500 dark:text-stone-400 mt-1 max-w-sm">Selecciona tus ingredientes en la lista lateral para ver cómo toma forma.</p>
                   </div>
                 ) : (
-                  <div 
-                    className="flex flex-col items-center justify-center transition-transform duration-300 ease-out py-4"
+                  <div
+                    ref={burgerRef}
+                    className="absolute left-1/2 top-1/2 flex flex-col items-center justify-center transition-transform duration-300 ease-out py-2"
                     style={{
-                      transform: `scale(${Math.max(0.68, 1 - (builderStack.length > 5 ? (builderStack.length - 5) * 0.04 : 0))})`,
-                      transformOrigin: 'center bottom'
+                      transform: `translate(-50%, -50%) scale(${fitScale})`,
+                      transformOrigin: 'center center'
                     }}
                   >
                     {/* TOP BUN / PATACÓN */}
                     {burgerBun && renderBurgerLayerWithStock('Pan de Hamburguesa', 99, 'top', (burgerBun?.stock ?? 1) <= 0)}
                     {dogBun && renderBurgerLayerWithStock('Pan de Perro', 99, 'top', (dogBun?.stock ?? 1) <= 0)}
                     {pataconBun && renderBurgerLayerWithStock('Patacón', 99, 'top', (pataconBun?.stock ?? 1) <= 0)}
+                    {artBun && artBunKind && renderBurgerLayerWithStock(artBun.name, 99, 'top', (artBun.stock ?? 1) <= 0, undefined, renderBunTop(artBunKind))}
 
                     {/* FILLINGS (reversed: most recently added at the top) */}
                     {[...fillings].reverse().map((ing, idx) => (
                       <React.Fragment key={`${ing.id || ing.name}-${idx}`}>
-                        {renderBurgerLayerWithStock(ing.name, idx, 'standard', (ing.stock ?? 1) <= 0)}
+                        {renderBurgerLayerWithStock(ing.name, idx, 'standard', (ing.stock ?? 1) <= 0, ing.image, artKind(ing.name) ? renderArtLayer(artKind(ing.name)!, idx) : undefined)}
                       </React.Fragment>
                     ))}
 
@@ -382,13 +416,14 @@ export default function BuilderSection({
                     {burgerBun && renderBurgerLayerWithStock('Pan de Hamburguesa', 0, 'bottom', (burgerBun?.stock ?? 1) <= 0)}
                     {dogBun && renderBurgerLayerWithStock('Pan de Perro', 0, 'bottom', (dogBun?.stock ?? 1) <= 0)}
                     {pataconBun && renderBurgerLayerWithStock('Patacón', 0, 'bottom', (pataconBun?.stock ?? 1) <= 0)}
+                    {artBun && artBunKind && renderBurgerLayerWithStock(artBun.name, 0, 'bottom', (artBun.stock ?? 1) <= 0, undefined, renderBunBottom(artBunKind))}
 
                     {/* GOURMET WOODEN SERVING BOARD */}
-                    <div className="w-[270px] h-[14px] bg-gradient-to-r from-[#6b4226] via-[#8B5A2B] to-[#5c381e] rounded-full shadow-lg border-t border-[#a0683a] relative mt-2 flex items-center justify-center">
+                    <div className="w-[350px] h-[16px] bg-gradient-to-r from-[#6b4226] via-[#8B5A2B] to-[#5c381e] rounded-full shadow-lg border-t border-[#a0683a] relative mt-2 flex items-center justify-center">
                       <div className="w-[85%] h-[2px] bg-white/20 rounded-full blur-[1px]"></div>
                     </div>
                     {/* Shadow under plate */}
-                    <div className="w-[230px] h-[10px] bg-black/20 dark:bg-black/40 rounded-full blur-md -mt-1"></div>
+                    <div className="w-[300px] h-[10px] bg-black/20 dark:bg-black/40 rounded-full blur-md -mt-1"></div>
                   </div>
                 )}
               </div>
@@ -403,6 +438,7 @@ export default function BuilderSection({
                         key={sIdx}
                         className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-100 dark:bg-stone-800 text-gray-800 dark:text-stone-200 text-xs font-semibold shrink-0"
                       >
+                        <IngredientThumb name={ing.name} image={ing.image} size={22} className="!rounded-md" />
                         {ing.name} ({formatCOP(ing.price)})
                         <button
                           type="button"
@@ -421,13 +457,13 @@ export default function BuilderSection({
 
             {/* Ingredients Selection Sidebar */}
             <div className="lg:col-span-4 flex flex-col h-full min-h-0">
-              <div className="bg-white dark:bg-[#151515] rounded-[28px] border border-gray-100 dark:border-stone-800 shadow-sm p-6 flex flex-col h-full overflow-hidden min-h-0">
-                <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100 dark:border-stone-800 shrink-0">
+              <div className="bg-white dark:bg-[#151515] rounded-[28px] border border-gray-100 dark:border-stone-800 shadow-sm p-5 flex flex-col h-full overflow-hidden min-h-0">
+                <div className="flex justify-between items-center mb-3 pb-2 border-b border-gray-100 dark:border-stone-800 shrink-0">
                   <h3 className="font-bold text-lg text-gray-900 dark:text-white">Ingredientes</h3>
                   <span className="text-xs font-semibold text-gray-400">Toca para agregar</span>
                 </div>
 
-                <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-w-0 min-h-0 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:bg-gray-200 dark:[&::-webkit-scrollbar-thumb]:bg-stone-700 [&::-webkit-scrollbar-thumb]:rounded-full">
+                <div style={{ overflowX: 'hidden' }} className="flex-1 max-h-[55vh] lg:max-h-none overflow-y-auto overflow-x-hidden space-y-2.5 pr-2 min-w-0 min-h-0 [scrollbar-width:auto] [scrollbar-color:#ff7a00_#f3f4f6] dark:[scrollbar-color:#ff7a00_#292524] [&::-webkit-scrollbar:horizontal]:hidden [&::-webkit-scrollbar]:w-2.5 [&::-webkit-scrollbar-track]:bg-gray-100 dark:[&::-webkit-scrollbar-track]:bg-stone-800 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-orange-500 [&::-webkit-scrollbar-thumb]:rounded-full">
                   {syncedIngredients.map(ing => (
                     <button 
                       key={ing.id} 
@@ -435,30 +471,29 @@ export default function BuilderSection({
                       disabled={ing.stock !== undefined && ing.stock <= 0}
                       className="w-full text-left bg-gray-50/60 dark:bg-stone-900/50 hover:bg-gray-100 dark:hover:bg-stone-800 disabled:opacity-40 disabled:cursor-not-allowed border border-gray-200/60 dark:border-stone-800 p-3 rounded-2xl flex items-center justify-between transition-colors group"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-xl bg-brand-orange/10 dark:bg-brand-orange/20 text-brand-orange flex items-center justify-center shrink-0 group-hover:bg-brand-orange group-hover:text-white transition-colors">
-                          <Plus className="w-4 h-4" />
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative w-12 h-12 shrink-0">
+                          <IngredientThumb name={ing.name} image={ing.image} size={48} />
+                          <span className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-brand-orange text-white flex items-center justify-center shadow group-hover:scale-110 transition-transform">
+                            <Plus className="w-3 h-3" />
+                          </span>
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-bold text-sm text-gray-900 dark:text-white leading-tight truncate">{ing.name}</p>
                           <p className="text-xs text-brand-orange font-bold mt-0.5 whitespace-nowrap">+{formatCOP(ing.price)}</p>
                         </div>
                       </div>
-                      {ing.stock !== undefined && (
-                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap ${
-                          ing.stock <= 0 
-                            ? 'bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400' 
-                            : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
-                        }`}>
-                          {ing.stock <= 0 ? 'AGOTADO' : `${ing.stock} DISP.`}
+                      {ing.stock !== undefined && ing.stock <= 0 && (
+                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full whitespace-nowrap bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400">
+                          AGOTADO
                         </span>
                       )}
                     </button>
                   ))}
                 </div>
                 
-                <div className="mt-5 pt-4 border-t border-gray-100 dark:border-stone-800 shrink-0">
-                  <div className="flex justify-between items-center mb-4">
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-stone-800 shrink-0">
+                  <div className="flex justify-between items-center mb-2">
                     <span className="text-gray-500 font-medium text-sm">Total:</span>
                     <span className="text-xl font-black text-brand-orange">{formatCOP(finalCustomPrice)}</span>
                   </div>
@@ -496,7 +531,7 @@ export default function BuilderSection({
                       setBuilderStack([]);
                       setActiveTab('cart');
                     }}
-                    className="w-full bg-brand-orange hover:bg-[#e66500] text-white py-3.5 rounded-2xl font-bold text-sm tracking-wide uppercase disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-brand-orange/20 transition-all"
+                    className="w-full bg-brand-orange hover:bg-[#e66500] text-white py-3 rounded-2xl font-bold text-sm tracking-wide uppercase disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-brand-orange/20 transition-all"
                   >
                     {editingCartItemId ? 'Actualizar Pedido' : 'Agregar al Carrito'}
                   </button>

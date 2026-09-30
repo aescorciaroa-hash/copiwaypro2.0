@@ -47,6 +47,43 @@ class Autenticacion {
         return null;
     }
 
+    /**
+     * Login alterno solo para personal operativo (kitchen/delivery): el PIN
+     * de 4 digitos reemplaza la contrasena en los paneles de Cocina y
+     * Domiciliario (pensado para terminales compartidas del local, donde
+     * teclear una contrasena larga cada turno es mas friccion que seguridad).
+     * No aplica a admin ni client -- esos roles siguen solo con contrasena.
+     */
+    public function intentarLoginConPin($correo, $pin) {
+        $tablas = [
+            'kitchen' => ['tabla' => 'AYUDANTE_COCINA', 'pk' => 'id_ayudante'],
+            'delivery' => ['tabla' => 'DOMICILIARIO', 'pk' => 'id_domiciliario'],
+        ];
+
+        foreach ($tablas as $rol => $info) {
+            $sql = "SELECT * FROM {$info['tabla']} WHERE correo = ? LIMIT 1";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param('s', $correo);
+            $stmt->execute();
+            $fila = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$fila) {
+                continue;
+            }
+
+            if (empty($fila['pin']) || !password_verify($pin, $fila['pin'])) {
+                return null;
+            }
+            if (!$fila['activo']) {
+                return null;
+            }
+
+            return $this->iniciarSesionUsuario($rol, $fila);
+        }
+        return null;
+    }
+
     /** Guarda al usuario en sesion (con regeneracion de ID contra fijacion de sesion). */
     public function iniciarSesionUsuario($rol, $fila) {
         $info = $this->tablasPorRol()[$rol];
@@ -55,7 +92,7 @@ class Autenticacion {
         $_SESSION['usuario_rol'] = $rol;
 
         return [
-            'id' => $fila[$info['pk']],
+            'id' => (string) $fila[$info['pk']],
             'role' => $rol,
             'name' => $fila['nombre'],
             'email' => $fila['correo'],
@@ -97,7 +134,7 @@ class Autenticacion {
             return null;
         }
 
-        unset($fila['contrasena']);
+        unset($fila['contrasena'], $fila['pin']);
         $fila['role'] = $this->rolActual();
         return $fila;
     }

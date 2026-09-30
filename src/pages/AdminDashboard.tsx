@@ -12,13 +12,14 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-import { formatCOP } from '../lib/format';
+import { formatCOP, vehicleWithModel } from '../lib/format';
 
 import { useStore, DEFAULT_MENU_CATEGORIES, Product, ProductComponent, Order, OrderItem, Staff, Client, NamedRef } from '../store/almacenAplicacion';
 import { api, ApiError, irA } from '../servicios/api';
 import { CustomSelect } from '../components/CustomSelect';
 import { TimePickerModal } from '../components/TimePickerModal';
 import { generateCierrePDF } from '../utils/generarCierrePdf';
+import { CustomBurgerThumb } from './client/ingredientArt';
 import { ToastNotification, ToastData } from '../components/ToastNotification';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { soundFx } from '../utils/audio';
@@ -98,6 +99,7 @@ export interface DriverMockOrder {
   total: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  raw?: Order;
 }
 
 export interface DriverMockInfo {
@@ -206,30 +208,36 @@ export default function AdminDashboard() {
   const [selectedDriverInfo, setSelectedDriverInfo] = useState<DriverMockInfo | null>(null);
   const [selectedStaffInfo, setSelectedStaffInfo] = useState<Staff | null>(null);
   const [selectedClientInfo, setSelectedClientInfo] = useState<Client | null>(null);
-  const [staffEditData, setStaffEditData] = useState({ 
-    name: "", 
-    phone: "", 
-    email: "", 
-    password: "", 
-    role: "Ayudante de cocina", 
-    plate: "", 
-    vehicle: "", 
+  const [staffEditData, setStaffEditData] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    password: "",
+    pin: "",
+    role: "Ayudante de cocina",
+    plate: "",
+    vehicle: "moto",
+    vehicleModel: "",
     active: true,
-    baseCash: 0 as number | '' 
+    baseCash: 0 as number | ''
   });
   const [showStaffPassword, setShowStaffPassword] = useState(false);
   const [copiedStaffCreds, setCopiedStaffCreds] = useState(false);
+  const [staffModalReadOnly, setStaffModalReadOnly] = useState(false);
 
-  const handleOpenStaffModal = (emp: Staff) => {
+  const handleOpenStaffModal = (emp: Staff, readOnly: boolean = false) => {
     setSelectedStaffInfo(emp);
+    setStaffModalReadOnly(readOnly);
     setStaffEditData({
       name: emp.name || "",
       phone: emp.phone || "",
       email: emp.email || "",
       password: emp.password || "",
+      pin: "",
       role: emp.role || "Ayudante de cocina",
       plate: emp.plate || "",
-      vehicle: emp.vehicle || "",
+      vehicle: emp.vehicle || "moto",
+      vehicleModel: emp.vehicleModel || "",
       active: emp.active !== false,
       baseCash: emp.baseCash || 0
     });
@@ -247,10 +255,10 @@ export default function AdminDashboard() {
   // Estados Globales (Datos simulados)
   const { 
     products, addProduct, updateProduct, deleteProduct,
-    inventory, addInventoryItem, updateInventoryStock, deleteInventoryItem,
+    inventory, addInventoryItem, updateInventoryItem, updateInventoryStock, deleteInventoryItem,
     inventoryLogs,
     staff, addStaff, updateStaff, deleteStaff,
-    orders, addOrder, updateOrderStatus, setOrders,
+    orders, addOrder, updateOrderStatus, setOrders, ordersSynced,
     clients, addClient, updateClient, deleteClient,
     storeConfig, updateStoreConfig,
     addCategory, removeCategory
@@ -259,96 +267,86 @@ export default function AdminDashboard() {
   
   const [salesFilter, setSalesFilter] = useState('Esta semana');
 
+  // Lunes de la semana que contiene `d` (semana inicia en lunes).
+  const inicioDeSemana = (d: Date) => {
+    const date = new Date(d);
+    const dia = date.getDay(); // 0=Dom .. 6=Sab
+    const diff = dia === 0 ? -6 : 1 - dia;
+    date.setDate(date.getDate() + diff);
+    date.setHours(0, 0, 0, 0);
+    return date;
+  };
+
+  const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+  /** Suma ventas reales (orders) día por día, empezando en `inicio` (inclusive). */
+  const ventasPorDia = (inicio: Date) => {
+    return DIAS_SEMANA.map((label, i) => {
+      const diaInicio = new Date(inicio);
+      diaInicio.setDate(diaInicio.getDate() + i);
+      const diaFin = new Date(diaInicio);
+      diaFin.setDate(diaFin.getDate() + 1);
+      const pedidosDelDia = orders.filter(o => {
+        const fecha = new Date(o.date);
+        return fecha >= diaInicio && fecha < diaFin;
+      });
+      const amount = pedidosDelDia.reduce((sum, o) => sum + (o.total || 0), 0);
+      return { date: label, amount, orderCount: pedidosDelDia.length };
+    });
+  };
+
+  /** Suma ventas reales agrupadas por semana dentro del mes que empieza en `inicioMes`. */
+  const ventasPorSemanaDelMes = (inicioMes: Date) => {
+    const finMes = new Date(inicioMes.getFullYear(), inicioMes.getMonth() + 1, 0, 23, 59, 59, 999);
+    const semanas: { date: string; amount: number; orderCount: number }[] = [];
+    let cursor = new Date(inicioMes);
+    let numero = 1;
+    while (cursor <= finMes) {
+      const semanaInicio = new Date(cursor);
+      const semanaFin = new Date(cursor);
+      semanaFin.setDate(semanaFin.getDate() + 7);
+      if (semanaFin > finMes) semanaFin.setTime(finMes.getTime() + 1);
+      const pedidosDeLaSemana = orders.filter(o => {
+        const fecha = new Date(o.date);
+        return fecha >= semanaInicio && fecha < semanaFin;
+      });
+      semanas.push({
+        date: `Semana ${numero}`,
+        amount: pedidosDeLaSemana.reduce((sum, o) => sum + (o.total || 0), 0),
+        orderCount: pedidosDeLaSemana.length,
+      });
+      cursor.setDate(cursor.getDate() + 7);
+      numero++;
+    }
+    return semanas;
+  };
+
   const getSalesData = () => {
+    const ahora = new Date();
+    const inicioSemanaActual = inicioDeSemana(ahora);
+
     switch (salesFilter) {
       case 'Esta semana':
-        return [
-          { date: 'Lun', amount: 150000 },
-          { date: 'Mar', amount: 200000 },
-          { date: 'Mié', amount: 350000 },
-          { date: 'Jue', amount: 180000 },
-          { date: 'Vie', amount: 450000 },
-          { date: 'Sáb', amount: 650000 },
-          { date: 'Dom', amount: 500000 }
-        ];
-      case 'Semana pasada':
-        return [
-          { date: 'Lun', amount: 120000 },
-          { date: 'Mar', amount: 180000 },
-          { date: 'Mié', amount: 280000 },
-          { date: 'Jue', amount: 150000 },
-          { date: 'Vie', amount: 390000 },
-          { date: 'Sáb', amount: 550000 },
-          { date: 'Dom', amount: 480000 }
-        ];
+        return ventasPorDia(inicioSemanaActual);
+      case 'Semana pasada': {
+        const inicio = new Date(inicioSemanaActual);
+        inicio.setDate(inicio.getDate() - 7);
+        return ventasPorDia(inicio);
+      }
       case 'Este mes':
-        return [
-          { date: 'Semana 1', amount: 1850000 },
-          { date: 'Semana 2', amount: 2100000 },
-          { date: 'Semana 3', amount: 2450000 },
-          { date: 'Semana 4', amount: 2200000 }
-        ];
+        return ventasPorSemanaDelMes(new Date(ahora.getFullYear(), ahora.getMonth(), 1));
       case 'Hace un mes':
-        return [
-          { date: 'Semana 1', amount: 1650000 },
-          { date: 'Semana 2', amount: 1800000 },
-          { date: 'Semana 3', amount: 2050000 },
-          { date: 'Semana 4', amount: 1950000 }
-        ];
+        return ventasPorSemanaDelMes(new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1));
       default:
         return [];
     }
   };
 
   const salesData = getSalesData();
+  const periodOrdersCount = salesData.reduce((sum, d) => sum + (d.orderCount || 0), 0);
 
-  
+
   // Ajustes
-
-  const driversMockData: Record<number, DriverMockInfo> = {
-    1: {
-      name: 'Repartidor 1 - Carlos Mendoza',
-      status: 'EN RUTA',
-      phone: '+57 320 123 4567',
-      plate: 'XYZ-123',
-      vehicle: 'Motocicleta Honda',
-      orders: [
-        {
-          id: '#1024',
-          client: 'Ana Pérez',
-          address: 'Calle 10 # 5-20, Centro',
-          status: 'En camino',
-          items: ['2x Hamburguesa Clásica', '1x Papas Fritas'],
-          total: 45000,
-        },
-        {
-          id: '#1025',
-          client: 'Luis Sánchez',
-          address: 'Carrera 15 # 8-45, Altico',
-          status: 'Entregado',
-          items: ['1x Pizza Hawaiana'],
-          total: 35000,
-        }
-      ]
-    },
-    2: {
-      name: 'Repartidor 2 - Miguel Torres',
-      status: 'CARGANDO',
-      phone: '+57 310 987 6543',
-      plate: 'ABC-987',
-      vehicle: 'Motocicleta Yamaha',
-      orders: [
-        {
-          id: '#1026',
-          client: 'María Gómez',
-          address: 'Calle 20 # 10-15, Norte',
-          status: 'Asignado',
-          items: ['3x Hot Dog Especial', '2x Gaseosa 400ml'],
-          total: 62000,
-        }
-      ]
-    }
-  };
 
   // Real-time automatic store status calculation
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -419,12 +417,13 @@ export default function AdminDashboard() {
     name: '',
     stock: '',
     totalCost: '',
+    unitCost: '',
     unit: 'Unidades',
     category: 'General',
     supplier: '',
     notes: ''
   });
-  const [newStaff, setNewStaff] = useState({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: '', baseCash: 0 as number | '' });
+  const [newStaff, setNewStaff] = useState({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: 'moto', vehicleModel: '', pin: '', baseCash: 0 as number | '' });
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualOrderClient, setManualOrderClient] = useState({ name: '', address: '', phone: '' });
   const [manualOrderItems, setManualOrderItems] = useState<ManualOrderItem[]>([]);
@@ -555,11 +554,7 @@ export default function AdminDashboard() {
         color: palette[i % palette.length]
       }));
     }
-    return [
-      { name: 'Hamburguesa Clásica', value: 45, units: 18, color: '#f97316' },
-      { name: 'Papas Medianas', value: 30, units: 12, color: '#3b82f6' },
-      { name: 'Gaseosa 500ml', value: 25, units: 10, color: '#9ca3af' }
-    ];
+    return [];
   }, [orders]);
 
 
@@ -655,12 +650,15 @@ export default function AdminDashboard() {
   };
 
   // Real-time tracking of new orders to play chime alert (RF-27)
-  const prevAdminOrdersCount = useRef<number>(orders.length);
-  const initialAdminLoad = useRef<boolean>(true);
+  const prevAdminOrdersCount = useRef<number | null>(null);
 
   useEffect(() => {
-    if (initialAdminLoad.current) {
-      initialAdminLoad.current = false;
+    // Espera al primer setOrders real del polling (ver FirebaseSync): antes
+    // de eso `orders` está vacío por el estado inicial del store, y compararlo
+    // contra el primer fetch real disparaba la alerta en cada login.
+    if (!ordersSynced) return;
+
+    if (prevAdminOrdersCount.current === null) {
       prevAdminOrdersCount.current = orders.length;
       return;
     }
@@ -671,7 +669,7 @@ export default function AdminDashboard() {
       setTimeout(() => setShowOrderAlert(false), 5000);
     }
     prevAdminOrdersCount.current = orders.length;
-  }, [orders]);
+  }, [orders, ordersSynced]);
 
   // Cleanup hook para eliminar órdenes sin artículos
   useEffect(() => {
@@ -955,21 +953,40 @@ export default function AdminDashboard() {
         <div ref={mainContentRef} className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-10 w-full min-w-0">
           {/* Alerta de Stock Crítico */}
           {inventory.filter(i => i.stock > 0 && i.stock <= 10).length > 0 && (
-            <div className="mb-6 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 rounded-2xl p-4 flex items-start gap-4 shadow-sm animate-pulse">
-              <div className="bg-red-100 dark:bg-red-900/50 p-2 rounded-full shrink-0 mt-0.5">
-                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-              </div>
-              <div className="flex-1">
-                <h4 className="text-red-800 dark:text-red-300 font-bold text-sm">⚠️ ALERTA PREVENTIVA: STOCK CRÍTICO</h4>
-                <p className="text-red-600 dark:text-red-400 text-sm mt-1">
-                  Los siguientes insumos están a punto de agotarse. Reabastece pronto para evitar bloqueos en las ventas:
-                </p>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {inventory.filter(i => i.stock > 0 && i.stock <= 10).map(item => (
-                    <span key={item.id} className="inline-flex items-center gap-1.5 px-3 py-1 bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300 text-xs font-bold rounded-lg border border-red-200 dark:border-red-800/50">
-                      {item.name} <span className="text-red-500 dark:text-red-400">({item.stock} uds)</span>
-                    </span>
-                  ))}
+            <div className="mb-6 relative overflow-hidden bg-gradient-to-br from-red-50 via-red-50 to-orange-50 dark:from-red-950/30 dark:via-red-950/20 dark:to-orange-950/10 border border-red-200/80 dark:border-red-900/40 rounded-[24px] p-5 shadow-sm">
+              <div className="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-red-200/30 dark:bg-red-900/20 blur-2xl pointer-events-none" />
+              <div className="relative flex items-start gap-4">
+                <div className="relative shrink-0 mt-0.5">
+                  <div className="absolute inset-0 rounded-2xl bg-red-500/30 animate-ping" />
+                  <div className="relative bg-red-500 text-white p-2.5 rounded-2xl shadow-md shadow-red-500/30">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-red-800 dark:text-red-300 font-black text-sm tracking-tight">Alerta Preventiva: Stock Crítico</h4>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-red-500 text-white">
+                        {inventory.filter(i => i.stock > 0 && i.stock <= 10).length}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('inventory')}
+                      className="group inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-white dark:bg-red-500/15 text-red-700 dark:text-red-200 hover:bg-red-600 hover:text-white dark:hover:bg-red-600 dark:hover:text-white text-xs font-bold transition-all duration-200 shadow-sm shadow-red-500/10 active:scale-95 shrink-0 cursor-pointer border border-red-300 dark:border-red-500/40 hover:border-red-600"
+                    >
+                      Ir a Inventario <ArrowRight className="w-3.5 h-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+                    </button>
+                  </div>
+                  <p className="text-red-600/90 dark:text-red-400/90 text-sm mt-1 font-medium">
+                    Los siguientes insumos están a punto de agotarse. Reabastece pronto para evitar bloqueos en las ventas.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {inventory.filter(i => i.stock > 0 && i.stock <= 10).map(item => (
+                      <span key={item.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white/80 dark:bg-stone-900/60 text-red-700 dark:text-red-300 text-xs font-bold rounded-xl border border-red-200/80 dark:border-red-800/40 shadow-xs">
+                        {item.name} <span className="text-red-500 dark:text-red-400 font-black">{item.stock} uds</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -982,6 +999,7 @@ export default function AdminDashboard() {
                 staff={staff}
                 storeConfig={storeConfig}
                 salesData={salesData}
+                periodOrdersCount={periodOrdersCount}
                 salesFilter={salesFilter}
                 setSalesFilter={setSalesFilter}
                 topProductsData={topProductsData}
@@ -996,7 +1014,6 @@ export default function AdminDashboard() {
                 orders={orders}
                 staff={staff}
                 theme={theme}
-                driversMockData={driversMockData}
                 highlightedOrderId={highlightedOrderId}
                 isMapExpanded={isMapExpanded}
                 setIsMapExpanded={setIsMapExpanded}
@@ -1018,6 +1035,7 @@ export default function AdminDashboard() {
                 handleNavigateToOrders={handleNavigateToOrders}
                 setEditingAddressOrder={setEditingAddressOrder}
                 setNewAddress={setNewAddress}
+                handleOpenStaffModal={handleOpenStaffModal}
               />
             )}
             {activeTab === 'menu' && (
@@ -1063,6 +1081,7 @@ export default function AdminDashboard() {
                 filteredInventory={filteredInventory}
                 filteredInventoryLogs={filteredInventoryLogs}
                 addInventoryItem={addInventoryItem}
+                updateInventoryItem={updateInventoryItem}
                 updateInventoryStock={updateInventoryStock}
                 deleteInventoryItem={deleteInventoryItem}
                 newItem={newItem}
@@ -1209,18 +1228,21 @@ export default function AdminDashboard() {
 
                   <div>
                     <h3 className="font-bold text-sm text-gray-900 dark:text-white mb-4 uppercase tracking-wider">Consumo de Insumos</h3>
-                    <div className="bg-gray-50 dark:bg-stone-900/50 rounded-[20px] p-8 border border-gray-100 dark:border-stone-800">
-                      <div className="space-y-3">
-                        {cierreData?.insumosConsumidos.map((insumo, idx) => (
-                          <div key={idx} className="flex justify-between items-center text-sm">
-                            <span className="text-gray-600 dark:text-stone-300">{insumo.name}</span>
-                            <span className="font-bold text-gray-900 dark:text-white">{insumo.used} unid.</span>
-                          </div>
-                        ))}
-                        {(!cierreData?.insumosConsumidos || cierreData.insumosConsumidos.length === 0) && (
-                          <p className="text-sm text-gray-500 italic">No hay datos de insumos consumidos hoy.</p>
-                        )}
-                      </div>
+                    <div className="bg-gray-50 dark:bg-stone-900/50 rounded-[20px] p-5 border border-gray-100 dark:border-stone-800">
+                      {cierreData?.insumosConsumidos && cierreData.insumosConsumidos.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {cierreData.insumosConsumidos.map((insumo, idx) => (
+                            <div key={idx} className="flex items-center justify-between gap-3 bg-white dark:bg-[#151515] rounded-xl px-4 py-3 border border-gray-100 dark:border-stone-800">
+                              <span className="text-sm font-medium text-gray-700 dark:text-stone-300 truncate">{insumo.name}</span>
+                              <span className="shrink-0 text-xs font-black text-brand-orange bg-orange-50 dark:bg-orange-950/30 px-2.5 py-1 rounded-full">
+                                {insumo.used} unid.
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No hay datos de insumos consumidos hoy.</p>
+                      )}
                     </div>
                   </div>
 
@@ -1411,20 +1433,18 @@ export default function AdminDashboard() {
                     <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-stone-400 mb-2.5">
                       Consumo de Insumos (Escandallo)
                     </h4>
-                    <div className="rounded-xl border border-gray-100 dark:border-stone-800 overflow-hidden text-xs">
-                      <div className="bg-gray-100 dark:bg-stone-900 p-2.5 font-bold flex justify-between text-gray-700 dark:text-stone-300">
-                        <span>Insumo / Ingrediente</span>
-                        <span>Cantidad Consumida</span>
-                      </div>
-                      <div className="divide-y divide-gray-100 dark:divide-stone-800">
-                        {cierreData.insumosConsumidos?.map((ins, i: number) => (
-                          <div key={i} className="p-2.5 flex justify-between text-gray-700 dark:text-stone-300 bg-white dark:bg-[#1f1f23]">
-                            <span>{ins.name}</span>
-                            <span className="font-semibold text-gray-900 dark:text-white">{ins.used} u</span>
+                    {cierreData.insumosConsumidos && cierreData.insumosConsumidos.length > 0 ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {cierreData.insumosConsumidos.map((ins, i: number) => (
+                          <div key={i} className="flex items-center justify-between gap-2 bg-gray-50 dark:bg-stone-900 rounded-lg px-3 py-2 border border-gray-100 dark:border-stone-800 text-xs">
+                            <span className="text-gray-600 dark:text-stone-300 truncate">{ins.name}</span>
+                            <span className="shrink-0 font-bold text-gray-900 dark:text-white">{ins.used} u</span>
                           </div>
                         ))}
                       </div>
-                    </div>
+                    ) : (
+                      <p className="text-xs text-gray-500 italic">Sin insumos consumidos.</p>
+                    )}
                   </div>
 
                   <div className="pt-4 border-t border-gray-100 dark:border-stone-800 text-[11px] text-gray-400 dark:text-stone-500 flex justify-between items-center">
@@ -1517,48 +1537,127 @@ export default function AdminDashboard() {
                   Pedidos Asignados ({selectedDriverInfo.orders.length})
                 </h3>
                 
-                <div className="space-y-4">
-                  {selectedDriverInfo.orders.map((order, idx: number) => (
-                    <div key={idx} className="border border-gray-200 dark:border-stone-800 rounded-[24px] p-6 bg-white dark:bg-[#151515] relative overflow-hidden group">
-                      <div className={`absolute top-0 left-0 w-1.5 h-full ${order.status === 'Entregado' ? 'bg-emerald-500' : 'bg-brand-orange'}`}></div>
-                      
-                      <div className="flex justify-between items-start mb-4">
+                <div className="space-y-5">
+                  {selectedDriverInfo.orders.length === 0 && (
+                    <div className="text-center py-10 rounded-[24px] border border-dashed border-gray-200 dark:border-stone-800 text-sm text-gray-500 dark:text-stone-400">
+                      Sin pedidos asignados por ahora.
+                    </div>
+                  )}
+                  {selectedDriverInfo.orders.map((order, idx: number) => {
+                    const raw = order.raw;
+                    const delivered = order.status === 'Entregado';
+                    const paid = (!order.paymentMethod || order.paymentMethod === 'online' || order.paymentStatus === 'Pagado');
+                    const items = raw?.items || [];
+                    return (
+                    <div key={idx} className="rounded-[28px] border border-gray-200 dark:border-stone-800 bg-white dark:bg-[#151515] overflow-hidden shadow-sm">
+                      <div className={`px-6 py-4 flex items-center justify-between gap-3 ${delivered ? 'bg-emerald-50 dark:bg-emerald-950/20' : 'bg-gradient-to-r from-brand-orange/10 to-transparent'}`}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${delivered ? 'bg-emerald-500' : 'bg-brand-orange'} text-white`}>
+                            {delivered ? <CheckCircle2 className="w-5 h-5" /> : <Truck className="w-5 h-5" />}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-black text-lg leading-none text-gray-900 dark:text-white">{String(order.id).replace(/^#/, '')}</p>
+                            {raw?.time && (
+                              <p className="text-xs text-gray-500 dark:text-stone-400 mt-1 flex items-center gap-1"><Clock className="w-3 h-3" /> {raw.time}</p>
+                            )}
+                          </div>
+                        </div>
+                        <span className={`px-3 py-1 text-[10px] font-black tracking-wider rounded-full uppercase ${delivered ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
+                          {order.status}
+                        </span>
+                      </div>
+
+                      <div className="p-6 space-y-5">
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div className="flex items-center gap-3 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl">
+                            <div className="w-9 h-9 rounded-full bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0"><User className="w-4 h-4" /></div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{order.client}</p>
+                              {raw?.clientPhone ? (
+                                <a href={`tel:${raw.clientPhone}`} className="text-xs text-gray-500 dark:text-stone-400 hover:text-brand-orange">{raw.clientPhone}</a>
+                              ) : (
+                                <p className="text-xs text-gray-400">Teléfono no disponible</p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-3 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl">
+                            <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center justify-center shrink-0"><MapPin className="w-4 h-4" /></div>
+                            <p className="text-sm font-medium text-gray-700 dark:text-stone-300 self-center">{order.address}</p>
+                          </div>
+                        </div>
+
                         <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{order.id}</span>
-                            <span className={`px-2.5 py-1 text-[10px] font-black tracking-wider rounded-full uppercase ${order.status === 'Entregado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'}`}>
-                              {order.status}
-                            </span>
+                          <p className="text-[11px] font-black uppercase tracking-wider text-gray-400 mb-3">Productos ({items.length || order.items.length})</p>
+                          <div className="space-y-3">
+                            {items.length > 0 ? items.map((item, i) => {
+                              const catProduct = products.find(p => p.id === (item.productId || item.id) || p.name.toLowerCase() === (item.name || item.product?.name || '').toLowerCase());
+                              const img = item.product?.image || catProduct?.image;
+                              const name = item.name || item.product?.name || catProduct?.name || 'Producto';
+                              const qty = item.quantity || 1;
+                              const linePrice = (item.finalPrice ?? item.price ?? 0) * qty;
+                              return (
+                                <div key={item.id || i} className="flex gap-3 items-start">
+                                  <div className="w-14 h-14 rounded-2xl overflow-hidden bg-gray-100 dark:bg-stone-800 shrink-0 ring-1 ring-black/5">
+                                    {img ? (
+                                      <img src={img} alt={name} className="w-full h-full object-cover" />
+                                    ) : item.extras && item.extras.length > 0 ? (
+                                      <CustomBurgerThumb ingredientNames={item.extras.map(e => e.name)} size={56} className="!rounded-none border-0" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center text-gray-400"><ShoppingBag className="w-5 h-5" /></div>
+                                    )}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex justify-between gap-2">
+                                      <p className="text-sm font-bold text-gray-900 dark:text-white"><span className="text-brand-orange">{qty}x</span> {name}</p>
+                                      {linePrice > 0 && <p className="text-sm font-bold text-gray-700 dark:text-stone-300 shrink-0">{formatCOP(linePrice)}</p>}
+                                    </div>
+                                    {item.extras && item.extras.length > 0 && (
+                                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-0.5">+ {item.extras.map(e => e.name).join(', ')}</p>
+                                    )}
+                                    {item.removed && item.removed.length > 0 && (
+                                      <p className="text-xs text-red-500 mt-0.5">Sin {item.removed.map(e => e.name).join(', ')}</p>
+                                    )}
+                                    {item.modifications && item.modifications.length > 0 && (
+                                      <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{item.modifications.join(' · ')}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }) : order.items.map((item: string, i: number) => (
+                              <div key={i} className="text-sm text-gray-600 dark:text-stone-400">{item}</div>
+                            ))}
                           </div>
-                          <p className="font-medium text-gray-900 dark:text-white">{order.client}</p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-black text-[clamp(16px,4vw,18px)] leading-none text-gray-900 dark:text-white">{formatCOP(order.total)}</p>
-                          {(!order.paymentMethod || order.paymentMethod === 'online' || order.paymentStatus === 'Pagado' || order.status === 'Pagado') ? (
-                            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">Digital</span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-brand-orange uppercase tracking-wide">Efectivo</span>
+
+                        <div className="rounded-2xl bg-gray-50 dark:bg-stone-900 p-4 space-y-1.5 text-sm">
+                          {raw?.subtotal != null && (
+                            <div className="flex justify-between text-gray-600 dark:text-stone-400"><span>Subtotal</span><span>{formatCOP(raw.subtotal)}</span></div>
                           )}
-                        </div>
-                      </div>
-
-                      <div className="flex justify-between items-center mb-4 bg-gray-50 dark:bg-stone-900 p-3 rounded-[16px]">
-                        <div className="flex items-start gap-2">
-                          <MapPin className="w-4 h-4 text-gray-400 shrink-0 mt-0.5" />
-                          <p className="text-sm font-medium text-gray-700 dark:text-stone-300">{order.address}</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        {order.items.map((item: string, i: number) => (
-                          <div key={i} className="text-sm text-gray-500 dark:text-stone-400 flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-stone-700"></span>
-                            {item}
+                          {(raw?.shipping ?? 0) > 0 && (
+                            <div className="flex justify-between text-gray-600 dark:text-stone-400"><span>Domicilio</span><span>{formatCOP(raw!.shipping!)}</span></div>
+                          )}
+                          {(raw?.discount ?? 0) > 0 && (
+                            <div className="flex justify-between text-emerald-600"><span>Descuento</span><span>-{formatCOP(raw!.discount!)}</span></div>
+                          )}
+                          <div className="flex justify-between items-center pt-2 border-t border-gray-200 dark:border-stone-700">
+                            <span className="font-black text-gray-900 dark:text-white">Total</span>
+                            <span className="font-black text-lg text-gray-900 dark:text-white">{formatCOP(order.total)}</span>
                           </div>
-                        ))}
+                          <div className="flex justify-between items-center pt-1">
+                            <span className="text-gray-500 dark:text-stone-400">Pago</span>
+                            {paid ? (
+                              <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-[10px] font-black uppercase">
+                                Digital{raw?.digitalBank ? ` · ${raw.digitalBank}` : ''} · Pagado
+                              </span>
+                            ) : (
+                              <span className="px-2.5 py-0.5 rounded-full bg-orange-100 dark:bg-orange-900/30 text-brand-orange text-[10px] font-black uppercase">Cobrar en efectivo</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -1633,201 +1732,237 @@ export default function AdminDashboard() {
       {/* Manual Order Modal */}
       <AnimatePresence>
         {showManualForm && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowManualForm(false)}
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-white dark:bg-[#151515] w-full max-w-4xl rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="bg-white dark:bg-[#151515] w-full max-w-4xl rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
+              onClick={e => e.stopPropagation()}
             >
-              <div className="p-6 md:p-8 flex-1 overflow-y-auto">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-black text-gray-900 dark:text-white">
-                    Ingreso de Orden Manual
-                  </h2>
-                  <button 
-                    onClick={() => setShowManualForm(false)}
-                    className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
+              {/* Modal Header */}
+              <div className="p-6 md:p-8 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-orange-50 dark:bg-orange-900/20 text-brand-orange flex items-center justify-center shrink-0">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 dark:text-white">Ingreso de Orden Manual</h2>
+                    <p className="text-xs text-gray-500 dark:text-stone-400">Registra un pedido tomado por llamada o WhatsApp.</p>
+                  </div>
                 </div>
-                <div className="flex flex-col gap-6">
-              <div className="flex flex-col md:flex-row gap-4">
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Cliente</label>
-                  <input type="text" value={manualOrderClient.name} onChange={e => setManualOrderClient({...manualOrderClient, name: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Nombre del cliente" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Teléfono</label>
-                  <input type="tel" value={manualOrderClient.phone} onChange={e => setManualOrderClient({...manualOrderClient, phone: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Número de celular" />
-                </div>
-                <div className="flex-1 min-w-0 md:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Dirección de Entrega</label>
-                  <input type="text" value={manualOrderClient.address} onChange={e => setManualOrderClient({...manualOrderClient, address: e.target.value})} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" placeholder="Dirección completa" />
-                </div>
+                <button
+                  onClick={() => setShowManualForm(false)}
+                  className="w-10 h-10 rounded-full hover:bg-gray-100 dark:hover:bg-stone-800 flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-stone-300 transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {/* Added items list */}
-              {manualOrderItems.length > 0 && (
-                <div className="space-y-3 bg-gray-50 dark:bg-stone-900 p-4 rounded-[16px] border border-gray-100 dark:border-stone-800">
-                  <h4 className="font-bold text-sm text-gray-900 dark:text-white">Productos Añadidos:</h4>
-                  {manualOrderItems.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-center bg-white dark:bg-[#1a1a1e] p-3 rounded-[12px] shadow-sm border border-gray-100 dark:border-stone-800/50">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-brand-orange text-sm">{item.quantity}x</span>
-                        <div>
-                          <p className="font-bold text-sm text-gray-900 dark:text-white">{item.name}</p>
+              {/* Modal Body */}
+              <div className="p-6 md:p-8 space-y-5 overflow-y-auto">
+                {/* Datos del Cliente */}
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-4">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">1. Datos del Cliente</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cliente</label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="text" value={manualOrderClient.name} onChange={e => setManualOrderClient({...manualOrderClient, name: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Nombre del cliente" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Teléfono</label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="tel" value={manualOrderClient.phone} onChange={e => setManualOrderClient({...manualOrderClient, phone: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Número de celular" />
+                      </div>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Dirección de Entrega</label>
+                      <div className="relative">
+                        <MapPin className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                        <input type="text" value={manualOrderClient.address} onChange={e => setManualOrderClient({...manualOrderClient, address: e.target.value})} className="w-full pl-11 pr-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all" placeholder="Dirección completa" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Productos Añadidos */}
+                {manualOrderItems.length > 0 && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">2. Productos Añadidos</h3>
+                      <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-brand-orange/10 text-brand-orange">
+                        {manualOrderItems.length} {manualOrderItems.length === 1 ? 'ítem' : 'ítems'}
+                      </span>
+                    </div>
+                    {manualOrderItems.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-4 bg-white dark:bg-stone-800 p-4 rounded-2xl shadow-sm border border-gray-100 dark:border-stone-700">
+                        {item.product?.image ? (
+                          <img src={item.product.image} alt={item.name} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-gray-100 dark:border-stone-700" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0 font-black text-sm">
+                            {item.quantity}x
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-brand-orange/10 text-brand-orange font-black text-[11px] flex items-center justify-center shrink-0">{item.quantity}x</span>
+                            <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{item.name}</p>
+                          </div>
                           {(item.removed.length > 0 || item.extras.length > 0) && (
-                            <div className="flex flex-wrap gap-2 mt-1">
+                            <div className="flex flex-wrap gap-2 mt-1.5">
                               {item.removed.map((r) => <span key={r.id} className="text-xs text-red-500 font-medium">- Sin {r.name}</span>)}
-                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">+ Extra {e.name}</span>)}
+                              {item.extras.map((e) => <span key={e.id} className="text-xs text-emerald-500 font-medium">{item.name === 'Hamburguesa Personalizada' ? `+ ${e.name}` : `+ Extra ${e.name}`}</span>)}
                             </div>
                           )}
                         </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <span className="font-black text-sm">{formatCOP(item.finalPrice)}</span>
-                        <button onClick={() => setManualOrderItems(manualOrderItems.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded-full transition-colors">
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Product selection block */}
-              <div className="flex flex-col gap-4 border border-gray-100 dark:border-stone-800 rounded-[16px] p-5 relative">
-                <h4 className="font-bold text-sm text-gray-900 dark:text-white">Añadir Producto</h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="md:col-span-2 relative" id="product-dropdown-container">
-                    <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Seleccionar del Menú</label>
-                    <div 
-                      className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 cursor-pointer flex items-center justify-between"
-                      onClick={() => {
-                        const el = document.getElementById('product-dropdown');
-                        if (el) el.classList.toggle('hidden');
-                      }}
-                    >
-                      {manualSelectedProduct ? (
-                        <div className="flex items-center gap-3">
-                          <img src={manualSelectedProduct.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-6 h-6 rounded-md object-cover" />
-                          <span>{manualSelectedProduct.name} - {formatCOP(manualSelectedProduct.price)}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">-- Elige un producto --</span>
-                      )}
-                      <ChevronDown className="w-4 h-4 text-gray-500" />
-                    </div>
-                    
-                    <div id="product-dropdown" className="hidden absolute top-full left-0 w-full mt-2 bg-white dark:bg-[#1a1a1e] border border-gray-200 dark:border-stone-800 rounded-[16px] shadow-xl z-50 max-h-60 overflow-y-auto">
-                      {products.filter(p => p.active).map(p => (
-                        <div 
-                          key={p.id}
-                          className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-stone-800 cursor-pointer border-b border-gray-100 dark:border-stone-800/50 last:border-0"
-                          onClick={() => {
-                            setManualSelectedProduct(p);
-                            setManualCustomRemoved([]);
-                            setManualCustomExtras([]);
-                            const el = document.getElementById('product-dropdown');
-                            if (el) el.classList.add('hidden');
-                          }}
-                        >
-                          <img src={p.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-10 h-10 rounded-[12px] object-cover" />
-                          <div>
-                            <p className="font-bold text-sm text-gray-900 dark:text-white">{p.name}</p>
-                            <p className="text-xs text-brand-orange font-bold">{formatCOP(p.price)}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cantidad</label>
-                    <input type="number" min="1" value={manualQuantity} onChange={e => setManualQuantity(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full px-4 py-2.5 rounded-[12px] border border-gray-200 dark:border-stone-800 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20" />
-                  </div>
-                </div>
-
-                {manualSelectedProduct && (
-                  <div className="mt-2 space-y-4">
-                    {/* Ingredients selector */}
-                    {manualSelectedProduct.ingredients && manualSelectedProduct.ingredients.length > 0 && (
-                      <div className="space-y-3">
-                        <label className="block text-xs font-bold text-gray-700 dark:text-stone-300">Personalizar Ingredientes</label>
-                        <div className="flex flex-wrap gap-2">
-                          {manualSelectedProduct.ingredients.map((ing: ProductComponent) => {
-                            const isRemoved = manualCustomRemoved.some(r => r.id === ing.id);
-                            const isExtra = manualCustomExtras.some(e => e.id === ing.id);
-                            
-                            return (
-                              <div key={ing.id} className="flex items-center gap-1 bg-gray-100 dark:bg-stone-800 rounded-full p-1 border border-gray-200 dark:border-stone-700">
-                                <button 
-                                  onClick={() => {
-                                    if (isRemoved) setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id));
-                                    else { setManualCustomRemoved([...manualCustomRemoved, ing]); setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id)); }
-                                  }}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${isRemoved ? 'bg-red-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
-                                >
-                                  -
-                                </button>
-                                <span className={`text-xs font-medium px-2 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-stone-300'}`}>
-                                  {ing.name}
-                                </span>
-                                <button 
-                                  onClick={() => {
-                                    if (isExtra) setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id));
-                                    else { setManualCustomExtras([...manualCustomExtras, ing]); setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id)); }
-                                  }}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${isExtra ? 'bg-emerald-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
-                                >
-                                  +
-                                </button>
-                              </div>
-                            );
-                          })}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="font-black text-sm text-gray-900 dark:text-white">{formatCOP(item.finalPrice)}</span>
+                          <button onClick={() => setManualOrderItems(manualOrderItems.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 rounded-full transition-colors cursor-pointer">
+                            <X className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                    )}
-                    <button onClick={handleAddProductToManualOrder} className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-2.5 rounded-[12px] text-sm font-bold hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors">
-                      Agregar a la Orden
-                    </button>
+                    ))}
                   </div>
                 )}
+
+                {/* Añadir Producto */}
+                <div className="bg-gray-50 dark:bg-stone-900/60 p-5 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-4 relative">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-brand-orange">{manualOrderItems.length > 0 ? '3.' : '2.'} Añadir Producto</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="lg:col-span-2 relative" id="product-dropdown-container">
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Seleccionar del Menú</label>
+                      <div
+                        className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 cursor-pointer flex items-center justify-between transition-all"
+                        onClick={() => {
+                          const el = document.getElementById('product-dropdown');
+                          if (el) el.classList.toggle('hidden');
+                        }}
+                      >
+                        {manualSelectedProduct ? (
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img src={manualSelectedProduct.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0" />
+                            <span className="truncate">{manualSelectedProduct.name} - {formatCOP(manualSelectedProduct.price)}</span>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-- Elige un producto --</span>
+                        )}
+                        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                      </div>
+
+                      <div id="product-dropdown" className="hidden absolute top-full left-0 w-full mt-2 bg-white dark:bg-[#1a1a1e] border border-gray-200 dark:border-stone-800 rounded-2xl shadow-xl z-50 max-h-60 overflow-y-auto">
+                        {products.filter(p => p.active).map(p => (
+                          <div
+                            key={p.id}
+                            className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-stone-800 cursor-pointer border-b border-gray-100 dark:border-stone-800/50 last:border-0"
+                            onClick={() => {
+                              setManualSelectedProduct(p);
+                              setManualCustomRemoved([]);
+                              setManualCustomExtras([]);
+                              const el = document.getElementById('product-dropdown');
+                              if (el) el.classList.add('hidden');
+                            }}
+                          >
+                            <img src={p.image || "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?q=80&w=200&h=200&auto=format&fit=crop"} alt="" className="w-10 h-10 rounded-xl object-cover shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{p.name}</p>
+                              <p className="text-xs text-brand-orange font-bold">{formatCOP(p.price)}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 dark:text-stone-300 mb-2">Cantidad</label>
+                      <input type="number" min="1" value={manualQuantity} onChange={e => setManualQuantity(e.target.value === '' ? '' : parseInt(e.target.value))} className="w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all font-bold" />
+                    </div>
+                  </div>
+
+                  {manualSelectedProduct && (
+                    <div className="pt-2 space-y-4 border-t border-gray-200/70 dark:border-stone-800">
+                      {/* Ingredients selector */}
+                      {manualSelectedProduct.ingredients && manualSelectedProduct.ingredients.length > 0 && (
+                        <div className="space-y-3 pt-2">
+                          <label className="block text-xs font-bold text-gray-700 dark:text-stone-300">Personalizar Ingredientes</label>
+                          <div className="flex flex-wrap gap-2">
+                            {manualSelectedProduct.ingredients.map((ing: ProductComponent) => {
+                              const isRemoved = manualCustomRemoved.some(r => r.id === ing.id);
+                              const isExtra = manualCustomExtras.some(e => e.id === ing.id);
+
+                              return (
+                                <div key={ing.id} className="flex items-center gap-1 bg-white dark:bg-stone-800 rounded-full p-1 border border-gray-200 dark:border-stone-700">
+                                  <button
+                                    onClick={() => {
+                                      if (isRemoved) setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id));
+                                      else { setManualCustomRemoved([...manualCustomRemoved, ing]); setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id)); }
+                                    }}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${isRemoved ? 'bg-red-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
+                                  >
+                                    -
+                                  </button>
+                                  <span className={`text-xs font-medium px-2 ${isRemoved ? 'text-gray-400 line-through' : 'text-gray-700 dark:text-stone-300'}`}>
+                                    {ing.name}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      if (isExtra) setManualCustomExtras(manualCustomExtras.filter(e => e.id !== ing.id));
+                                      else { setManualCustomExtras([...manualCustomExtras, ing]); setManualCustomRemoved(manualCustomRemoved.filter(r => r.id !== ing.id)); }
+                                    }}
+                                    className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${isExtra ? 'bg-emerald-500 text-white' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-stone-700'}`}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      <button onClick={handleAddProductToManualOrder} className="w-full bg-gray-900 dark:bg-white text-white dark:text-gray-900 py-3 rounded-2xl text-sm font-bold hover:bg-gray-800 dark:hover:bg-gray-200 transition-colors cursor-pointer flex items-center justify-center gap-2">
+                        <Plus className="w-4 h-4" /> Agregar a la Orden
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="flex flex-col md:flex-row justify-between items-center pt-4 border-t border-gray-100 dark:border-stone-800">
-                <div className="flex gap-6 items-center">
+              {/* Modal Footer */}
+              <div className="p-6 md:p-8 border-t border-gray-100 dark:border-stone-800 bg-gray-50 dark:bg-stone-900/50 flex flex-col md:flex-row justify-between items-center gap-4 shrink-0">
+                <div className="flex gap-5 sm:gap-6 items-center flex-wrap">
                   <div className="text-sm">
-                    <span className="text-gray-500">Subtotal: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Subtotal: </span>
                     <span className="font-bold text-gray-900 dark:text-white">{formatCOP(manualOrderTotal)}</span>
                   </div>
                   <div className="text-sm">
-                    <span className="text-gray-500">Envío: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Envío: </span>
                     <span className="font-bold text-gray-900 dark:text-white">{formatCOP(storeConfig.shippingRate)}</span>
                   </div>
                   <div className="text-lg">
-                    <span className="text-gray-500">Total: </span>
+                    <span className="text-gray-500 dark:text-stone-400">Total: </span>
                     <span className="font-black text-brand-orange">{formatCOP(manualOrderTotal + (manualOrderItems.length > 0 ? storeConfig.shippingRate : 0))}</span>
                   </div>
                 </div>
-                <button 
-                  onClick={handleCreateManualOrder} 
+                <button
+                  onClick={handleCreateManualOrder}
                   disabled={manualOrderItems.length === 0 || !manualOrderClient.name}
-                  className="bg-brand-orange text-white w-full md:w-auto px-8 py-3 rounded-[12px] font-bold hover:bg-[#e66500] disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-4 md:mt-0"
+                  className="bg-brand-orange text-white w-full md:w-auto px-8 py-3.5 rounded-full font-bold hover:bg-[#e66500] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-brand-orange/20 cursor-pointer flex items-center justify-center gap-2"
                 >
-                  Enviar a Cocina
+                  <ShoppingBag className="w-4 h-4" /> Enviar a Cocina
                 </button>
               </div>
-            </div>
-            </div>
+            </motion.div>
           </motion.div>
-        </motion.div>
         )}
       </AnimatePresence>
 
@@ -1864,12 +1999,22 @@ export default function AdminDashboard() {
               onClick={e => e.stopPropagation()}
               className="bg-white dark:bg-[#151515] rounded-[32px] w-full max-w-lg overflow-hidden shadow-2xl border border-gray-100 dark:border-stone-800 flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0">
-                <div>
-                  <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Orden {viewingOrder.id}</h3>
-                  <p className="text-gray-500 font-medium">Detalles completos de la orden</p>
+              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0 bg-gradient-to-br from-brand-orange/5 to-transparent">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-orange text-white flex items-center justify-center shrink-0 shadow-sm shadow-brand-orange/30">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Orden</h3>
+                      <span className="px-2.5 py-1 rounded-lg bg-brand-orange/10 text-brand-orange text-sm font-black tracking-wide">
+                        {viewingOrder.id.replace(/^#/, '')}
+                      </span>
+                    </div>
+                    <p className="text-gray-500 font-medium text-sm">Detalles completos de la orden</p>
+                  </div>
                 </div>
-                <button onClick={() => setViewingOrder(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors">
+                <button onClick={() => setViewingOrder(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors shrink-0">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -1907,21 +2052,50 @@ export default function AdminDashboard() {
 
                 <div>
                    <h4 className="font-bold text-gray-900 dark:text-white mb-4">Información del Cliente</h4>
-                   <div className="space-y-3">
-                     <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                        <Users className="w-4 h-4 shrink-0" /> <span className="font-medium text-gray-900 dark:text-white">{viewingOrder.client || 'Cliente General'}</span>
-                     </p>
+                   <div className="bg-gray-50/50 dark:bg-stone-900 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 space-y-3">
+                     <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-3 min-w-0">
+                         <div className="w-11 h-11 rounded-xl bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-bold flex items-center justify-center text-sm shrink-0">
+                           {(viewingOrder.client || 'Cliente General').split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                         </div>
+                         <div className="min-w-0">
+                           <p className="font-black text-gray-900 dark:text-white text-base leading-tight truncate">{viewingOrder.client || 'Cliente General'}</p>
+                           {viewingOrder.clientPhone && (
+                             <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">{viewingOrder.clientPhone}</p>
+                           )}
+                         </div>
+                       </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 gap-2.5 pt-3 border-t border-gray-200/70 dark:border-stone-800 text-xs">
+                       <div className="flex items-start gap-2 text-gray-600 dark:text-stone-400">
+                         <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-brand-orange" />
+                         <span className="font-semibold text-gray-800 dark:text-stone-200">{viewingOrder.address}</span>
+                       </div>
+                       <div className="flex items-center gap-2 text-gray-600 dark:text-stone-400">
+                         <Clock className="w-3.5 h-3.5 shrink-0 text-brand-orange" />
+                         <span className="font-semibold text-gray-800 dark:text-stone-200">{new Date(viewingOrder.date || Date.now()).toLocaleString()}</span>
+                       </div>
+                     </div>
+
                      {viewingOrder.clientPhone && (
-                       <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                          <span className="w-4 h-4 shrink-0 font-bold flex items-center justify-center text-[10px] border border-gray-400 rounded-full">TEL</span> <span className="font-medium">{viewingOrder.clientPhone}</span>
-                       </p>
+                       <div className="flex items-center gap-2 pt-1">
+                         <a
+                           href={`https://wa.me/57${viewingOrder.clientPhone.replace(/\D/g, '')}`}
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+                         >
+                           <span>WhatsApp</span>
+                         </a>
+                         <a
+                           href={`tel:${viewingOrder.clientPhone}`}
+                           className="py-2 px-3 bg-white dark:bg-stone-800 hover:bg-gray-100 dark:hover:bg-stone-700 text-gray-700 dark:text-stone-200 border border-gray-200 dark:border-stone-700 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors"
+                         >
+                           <span>Llamar</span>
+                         </a>
+                       </div>
                      )}
-                     <p className="text-gray-600 dark:text-stone-300 flex items-start gap-2">
-                        <MapPin className="w-4 h-4 mt-1 shrink-0" /> <span className="font-medium">{viewingOrder.address}</span>
-                     </p>
-                     <p className="text-gray-600 dark:text-stone-300 flex items-center gap-2">
-                        <Clock className="w-4 h-4 shrink-0" /> <span className="font-medium">{new Date(viewingOrder.date || Date.now()).toLocaleString()}</span>
-                     </p>
                    </div>
                 </div>
 
@@ -1946,9 +2120,9 @@ export default function AdminDashboard() {
                      const live = orders.find(o => o.id === viewingOrder.id) || viewingOrder;
                      const dName = live.driverName || viewingOrder.driverName;
                      const driverFromStaff = staff.find(s => s.name === dName || s.currentOrderId === live.id);
-                     const phone = live.driverPhone || driverFromStaff?.phone || '3114567890';
-                     const plate = live.driverPlate || driverFromStaff?.plate || 'CW-789';
-                     const vehicle = live.driverVehicle || driverFromStaff?.vehicle || 'Moto Honda CB125';
+                     const phone = live.driverPhone || driverFromStaff?.phone || 'Sin teléfono registrado';
+                     const plate = live.driverPlate || driverFromStaff?.plate || 'Sin placa';
+                     const vehicle = live.driverVehicle || vehicleWithModel(driverFromStaff?.vehicle, driverFromStaff?.vehicleModel) || 'Sin vehículo registrado';
 
                      if (dName) {
                        return (
@@ -2020,49 +2194,67 @@ export default function AdminDashboard() {
                       <ShoppingBag className="w-5 h-5" /> Artículos ({viewingOrder.items.length})
                    </h4>
                    <ul className="space-y-3">
-                     {viewingOrder.items.map((item: OrderItem, idx: number) => (
-                        <li key={idx} className="flex flex-col text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 px-4 py-3 rounded-xl border border-gray-100 dark:border-stone-800">
-                          <div className="flex justify-between w-full">
-                            <span className="font-medium"><span className="text-brand-orange font-bold mr-2">{item.quantity}x</span> {item.name}</span>
-                            {item.price && <span className="font-bold">{formatCOP(item.price * (item.quantity || 1))}</span>}
-                          </div>
-                          {item.modifications && item.modifications.length > 0 && (
-                            <ul className="mt-2 space-y-1 pl-6">
-                              {item.modifications.map((mod: string, mIdx: number) => (
-                                <li key={mIdx} className="text-sm font-bold text-red-500">{mod}</li>
-                              ))}
-                            </ul>
+                     {viewingOrder.items.map((item: OrderItem, idx: number) => {
+                       const itemImage = item.product?.image || products.find(p => p.id === item.productId)?.image;
+                       return (
+                        <li key={idx} className="flex items-center gap-4 text-gray-800 dark:text-stone-200 bg-gray-50 dark:bg-stone-900 p-3 rounded-2xl border border-gray-100 dark:border-stone-800">
+                          {itemImage ? (
+                            <img src={itemImage} alt={item.name} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-gray-200 dark:border-stone-700" />
+                          ) : item.extras && item.extras.length > 0 ? (
+                            <CustomBurgerThumb ingredientNames={item.extras.map(e => e.name)} size={64} className="!rounded-xl" />
+                          ) : (
+                            <div className="w-16 h-16 rounded-xl bg-brand-orange/10 text-brand-orange flex items-center justify-center shrink-0">
+                              <ShoppingBag className="w-6 h-6" />
+                            </div>
                           )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start gap-2">
+                              <span className="font-bold leading-snug">
+                                <span className="text-brand-orange font-black mr-1.5">{item.quantity}x</span> {item.name}
+                              </span>
+                              {item.price && <span className="font-black shrink-0">{formatCOP(item.price * (item.quantity || 1))}</span>}
+                            </div>
+                            {item.modifications && item.modifications.length > 0 && (
+                              <ul className="mt-1.5 space-y-0.5">
+                                {item.modifications.map((mod: string, mIdx: number) => (
+                                  <li key={mIdx} className="text-sm font-bold text-red-500">{mod}</li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
                         </li>
-                     ))}
+                       );
+                     })}
                    </ul>
                    
-                   {(viewingOrder.subtotal || viewingOrder.shipping || viewingOrder.discount) && (
-                     <div className="mt-4 border-t border-gray-200 dark:border-stone-700 pt-4 space-y-2">
-                       {viewingOrder.subtotal && (
-                         <div className="flex justify-between text-sm text-gray-600 dark:text-stone-400">
-                           <span>Subtotal</span>
-                           <span>{formatCOP(viewingOrder.subtotal)}</span>
+                   {(viewingOrder.subtotal || viewingOrder.shipping || viewingOrder.discount) ? (
+                     <div className="mt-4 bg-gray-50 dark:bg-stone-900 rounded-2xl border border-gray-100 dark:border-stone-800 p-4 space-y-2.5">
+                       {viewingOrder.subtotal ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-gray-500 dark:text-stone-400 font-medium">Subtotal</span>
+                           <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(viewingOrder.subtotal)}</span>
                          </div>
-                       )}
-                       {viewingOrder.shipping && (
-                         <div className="flex justify-between text-sm text-gray-600 dark:text-stone-400">
-                           <span>Domicilio</span>
-                           <span>{formatCOP(viewingOrder.shipping)}</span>
+                       ) : null}
+                       {viewingOrder.shipping ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-gray-500 dark:text-stone-400 font-medium flex items-center gap-1.5">
+                             <Truck className="w-3.5 h-3.5" /> Domicilio
+                           </span>
+                           <span className="font-bold text-gray-700 dark:text-stone-300">{formatCOP(viewingOrder.shipping)}</span>
                          </div>
-                       )}
-                       {viewingOrder.discount > 0 && (
-                         <div className="flex justify-between text-sm text-brand-orange font-bold">
-                           <span>Descuento</span>
-                           <span>-{formatCOP(viewingOrder.discount)}</span>
+                       ) : null}
+                       {viewingOrder.discount > 0 ? (
+                         <div className="flex justify-between items-center text-sm">
+                           <span className="text-emerald-600 dark:text-emerald-400 font-bold">Descuento</span>
+                           <span className="font-bold text-emerald-600 dark:text-emerald-400">-{formatCOP(viewingOrder.discount)}</span>
                          </div>
-                       )}
-                       <div className="flex justify-between text-lg font-black text-gray-900 dark:text-white pt-2 border-t border-gray-100 dark:border-stone-800">
+                       ) : null}
+                       <div className="flex justify-between items-center text-lg font-black text-gray-900 dark:text-white pt-2.5 mt-1 border-t border-dashed border-gray-200 dark:border-stone-700">
                          <span>Total</span>
-                         <span>{formatCOP(viewingOrder.total)}</span>
+                         <span className="text-brand-orange">{formatCOP(viewingOrder.total)}</span>
                        </div>
                      </div>
-                   )}
+                   ) : null}
                 </div>
               </div>
               <div className="p-6 md:p-8 bg-gray-50 dark:bg-stone-900 border-t border-gray-100 dark:border-stone-800 shrink-0">
@@ -2140,7 +2332,8 @@ export default function AdminDashboard() {
                       )}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
-                      {staffEditData.role} • ID: #{selectedStaffInfo.id ? selectedStaffInfo.id.slice(-6) : '000000'}
+                      {staffEditData.role} • ID: #{selectedStaffInfo.id || '0'}
+                      {selectedStaffInfo.createdBy && ` • Creado por ${selectedStaffInfo.createdBy}`}
                     </p>
                   </div>
                 </div>
@@ -2153,9 +2346,99 @@ export default function AdminDashboard() {
                 </button>
               </div>
 
+              {staffModalReadOnly ? (
+              <>
+              {/* Vista de Solo Lectura (Repartidores desde Gestionar Repartidores) */}
+              <div className="p-6 space-y-3.5 overflow-y-auto max-h-[60vh]">
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                    <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Rol Operativo</p>
+                    <p className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                      {selectedStaffInfo.role === 'Ayudante de cocina' ? <ChefHat className="w-3.5 h-3.5 text-brand-orange" /> : <Package className="w-3.5 h-3.5 text-brand-orange" />}
+                      {selectedStaffInfo.role}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                    <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Estado</p>
+                    {selectedStaffInfo.active ? (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200/50">Activo</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-600 dark:bg-stone-800 dark:text-stone-400">Inactivo</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                  <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Correo Electrónico</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white break-all">{selectedStaffInfo.email || 'Sin registrar'}</p>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                  <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Teléfono</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedStaffInfo.phone || 'Sin registrar'}</p>
+                </div>
+
+                {selectedStaffInfo.role === 'Domiciliario' && (
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Placa</p>
+                      <p className="text-sm font-bold uppercase text-gray-900 dark:text-white">{selectedStaffInfo.plate || 'Sin placa'}</p>
+                    </div>
+                    <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Vehículo</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white capitalize">{selectedStaffInfo.vehicle || 'Moto'}</p>
+                    </div>
+                    <div className="col-span-2 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Marca y Modelo</p>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedStaffInfo.vehicleModel || 'Sin registrar'}</p>
+                    </div>
+                    <div className="col-span-2 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
+                      <p className="text-[11px] font-semibold text-gray-500 dark:text-stone-400 uppercase tracking-wide mb-1">Base Efectivo Asignada</p>
+                      <p className="text-sm font-black text-gray-900 dark:text-white">{formatCOP(selectedStaffInfo.baseCash || 0)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Botones de Pie: solo lectura -- avisos y contacto, sin edicion */}
+              <div className="p-4 px-6 bg-gray-50/70 dark:bg-stone-900/40 border-t border-gray-100 dark:border-stone-800 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedStaffInfo(null)}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 dark:text-stone-400 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors cursor-pointer"
+                >
+                  Cerrar
+                </button>
+                <div className="flex-1" />
+                {selectedStaffInfo.phone && (
+                  <>
+                    <a
+                      href={`tel:${selectedStaffInfo.phone}`}
+                      className="px-4 py-2 rounded-xl text-sm font-bold border border-gray-200 dark:border-stone-700 text-gray-700 dark:text-stone-200 hover:bg-gray-100 dark:hover:bg-stone-800 transition-colors flex items-center gap-1.5"
+                    >
+                      Llamar
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const clean = (selectedStaffInfo.phone || '').replace(/\D/g, '');
+                        const text = encodeURIComponent(`Hola ${selectedStaffInfo.name}, te escribimos desde Copiway.`);
+                        window.open(`https://wa.me/${clean.startsWith('57') ? clean : '57' + clean}?text=${text}`, '_blank');
+                      }}
+                      className="px-4 py-2 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      Enviar Aviso
+                    </button>
+                  </>
+                )}
+              </div>
+              </>
+              ) : (
+              <>
               {/* Contenido del Formulario */}
               <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
-                
+
                 {/* Nombre y Rol */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
@@ -2268,6 +2551,22 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
+                {/* PIN de Perfil */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1.5">
+                    PIN de Perfil (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={staffEditData.pin}
+                    onChange={e => setStaffEditData({...staffEditData, pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
+                    className="w-full pl-3.5 pr-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-stone-700 bg-gray-50/50 dark:bg-stone-900/50 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-colors tracking-widest"
+                    placeholder="Ingresa PIN"
+                  />
+                </div>
+
                 {/* Si es domiciliario: datos de transporte */}
                 {staffEditData.role === 'Domiciliario' && (
                   <div className="space-y-3.5 p-3.5 rounded-2xl bg-gray-50 dark:bg-stone-900/40 border border-gray-100 dark:border-stone-800">
@@ -2288,14 +2587,29 @@ export default function AdminDashboard() {
                         <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
                           Vehículo
                         </label>
-                        <input 
-                          type="text" 
-                          value={staffEditData.vehicle || ''} 
-                          onChange={e => setStaffEditData({...staffEditData, vehicle: e.target.value})} 
-                          className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange" 
-                          placeholder="Ej. Moto Honda"
+                        <CustomSelect
+                          value={staffEditData.vehicle || 'moto'}
+                          onChange={(val) => setStaffEditData({ ...staffEditData, vehicle: val })}
+                          options={[
+                            { value: 'moto', label: 'Moto' },
+                            { value: 'bicicleta', label: 'Bicicleta' },
+                            { value: 'carro', label: 'Carro' },
+                            { value: 'a_pie', label: 'A pie' },
+                          ]}
                         />
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
+                        Marca y Modelo del Vehículo
+                      </label>
+                      <input
+                        type="text"
+                        value={staffEditData.vehicleModel || ''}
+                        onChange={e => setStaffEditData({...staffEditData, vehicleModel: e.target.value})}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange"
+                        placeholder="Ej. GIXXER 155 FI"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs font-semibold text-gray-600 dark:text-stone-300 mb-1">
@@ -2383,28 +2697,39 @@ export default function AdminDashboard() {
                   Cancelar
                 </button>
 
-                <button 
+                <button
                   type="button"
-                  onClick={() => {
-                    updateStaff(selectedStaffInfo.id, { 
-                      name: staffEditData.name,
-                      email: staffEditData.email, 
-                      phone: staffEditData.phone, 
-                      password: staffEditData.password,
-                      role: staffEditData.role,
-                      plate: staffEditData.plate,
-                      vehicle: staffEditData.vehicle,
-                      active: staffEditData.active,
-                      baseCash: staffEditData.baseCash === '' ? 0 : staffEditData.baseCash
-                    });
-                    showToast('staff', 'Los datos del empleado han sido actualizados correctamente.', 'Colaborador Actualizado');
-                    setSelectedStaffInfo(null);
+                  onClick={async () => {
+                    try {
+                      await updateStaff(selectedStaffInfo.id, {
+                        name: staffEditData.name,
+                        email: staffEditData.email,
+                        phone: staffEditData.phone,
+                        password: staffEditData.password,
+                        pin: staffEditData.pin,
+                        role: staffEditData.role,
+                        plate: staffEditData.plate,
+                        vehicle: staffEditData.vehicle,
+                        vehicleModel: staffEditData.vehicleModel,
+                        active: staffEditData.active,
+                        baseCash: staffEditData.baseCash === '' ? 0 : staffEditData.baseCash
+                      });
+                      showToast('staff', 'Los datos del empleado han sido actualizados correctamente.', 'Colaborador Actualizado');
+                      setSelectedStaffInfo(null);
+                    } catch (err) {
+                      const mensaje = err instanceof ApiError
+                        ? (err.errors ? Object.values(err.errors)[0][0] : err.message)
+                        : 'No se pudo actualizar el colaborador.';
+                      showToast('danger', mensaje, 'No se Actualizó el Colaborador');
+                    }
                   }}
                   className="px-5 py-2 rounded-xl text-sm font-bold bg-brand-orange text-white hover:bg-brand-orange/90 transition-colors shadow-sm cursor-pointer"
                 >
                   Guardar Cambios
                 </button>
               </div>
+              </>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -2417,33 +2742,56 @@ export default function AdminDashboard() {
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0, y: 20 }}
               className="bg-white dark:bg-[#151515] w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[90vh]"
             >
-              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0">
-                <div>
-                  <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Historial del Cliente</h3>
-                  <p className="text-gray-500 font-medium">{selectedClientInfo.name} - {selectedClientInfo.phone}</p>
+              <div className="p-6 md:p-8 flex items-center justify-between border-b border-gray-100 dark:border-stone-800 shrink-0 bg-gradient-to-br from-brand-orange/5 to-transparent">
+                <div className="flex items-center gap-4 min-w-0">
+                  <div className="w-12 h-12 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-lg shrink-0 shadow-sm shadow-brand-orange/30">
+                    {selectedClientInfo.name ? selectedClientInfo.name.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase() : 'CL'}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-2xl text-gray-900 dark:text-white leading-tight">Historial del Cliente</h3>
+                    <p className="text-gray-500 font-medium text-sm truncate">{selectedClientInfo.name} · {selectedClientInfo.phone}</p>
+                  </div>
                 </div>
-                <button onClick={() => setSelectedClientInfo(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors">
+                <button onClick={() => setSelectedClientInfo(null)} className="w-10 h-10 rounded-full bg-gray-100 dark:bg-stone-800 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-200 dark:hover:bg-stone-700 transition-colors shrink-0">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-6 md:p-8 space-y-4 overflow-y-auto">
-                <h4 className="font-bold text-gray-900 dark:text-white mb-2">Pedidos Realizados</h4>
+              <div className="p-6 md:p-8 space-y-3 overflow-y-auto">
+                <h4 className="font-bold text-gray-900 dark:text-white mb-1 flex items-center gap-2">
+                  <ShoppingBag className="w-4 h-4 text-brand-orange" /> Pedidos Realizados
+                </h4>
                 {orders.filter(o => o.clientPhone === selectedClientInfo.phone || o.client === selectedClientInfo.name).length === 0 ? (
-                   <p className="text-gray-500 text-sm">No hay pedidos registrados.</p>
+                   <div className="bg-gray-50 dark:bg-stone-900 p-6 rounded-2xl border border-gray-100 dark:border-stone-800 text-center">
+                     <p className="text-gray-500 text-sm font-medium">No hay pedidos registrados.</p>
+                   </div>
                 ) : (
                    orders.filter(o => o.clientPhone === selectedClientInfo.phone || o.client === selectedClientInfo.name).map(o => (
-                     <div key={o.id} className="border border-gray-100 dark:border-stone-800 p-4 rounded-xl">
-                       <div className="flex justify-between items-start mb-2">
-                         <span className="font-bold text-gray-900 dark:text-white">{o.id}</span>
-                         <span className="font-bold text-brand-orange">{formatCOP(o.total)}</span>
+                     <button
+                       type="button"
+                       key={o.id}
+                       onClick={() => { setViewingOrder(o); setSelectedClientInfo(null); }}
+                       className="w-full text-left bg-gray-50 dark:bg-stone-900 border border-gray-100 dark:border-stone-800 p-4 rounded-2xl hover:border-brand-orange/40 hover:bg-orange-50/30 dark:hover:bg-stone-900/60 transition-colors cursor-pointer group"
+                     >
+                       <div className="flex justify-between items-center mb-2">
+                         <span className="px-2.5 py-1 rounded-lg bg-brand-orange/10 text-brand-orange text-xs font-black tracking-wide">
+                           {String(o.id).replace(/^#/, '')}
+                         </span>
+                         <div className="flex items-center gap-2">
+                           <span className="font-black text-gray-900 dark:text-white">{formatCOP(o.total)}</span>
+                           <ChevronRight className="w-4 h-4 text-gray-300 dark:text-stone-600 group-hover:text-brand-orange group-hover:translate-x-0.5 transition-all" />
+                         </div>
                        </div>
-                       <p className="text-sm text-gray-600 dark:text-stone-300">{new Date(o.date).toLocaleString()}</p>
-                       <p className="text-sm text-gray-600 dark:text-stone-300 mt-2"><strong>Entregado por:</strong> {o.driverName || 'No asignado'}</p>
-                     </div>
+                       <p className="text-sm text-gray-600 dark:text-stone-300 flex items-center gap-1.5">
+                         <Clock className="w-3.5 h-3.5 shrink-0" /> {new Date(o.date).toLocaleString()}
+                       </p>
+                       <p className="text-sm text-gray-600 dark:text-stone-300 mt-1.5 flex items-center gap-1.5">
+                         <span className="font-semibold">Entregado por:</span> {o.driverName || 'No asignado'}
+                       </p>
+                     </button>
                    ))
                 )}
               </div>

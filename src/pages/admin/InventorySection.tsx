@@ -1,7 +1,7 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
+  ArrowDownRight, ArrowUpRight, Edit2, ImagePlus, Minus, Package, Plus, PlusCircle, Search, Trash2, TriangleAlert, Wallet, X
 } from 'lucide-react';
 
 import { formatCOP } from '../../lib/format';
@@ -9,15 +9,18 @@ import { InventoryItem, InventoryLog } from '../../store/almacenAplicacion';
 import { ToastData } from '../../components/ToastNotification';
 import { CustomSelect } from '../../components/CustomSelect';
 import { ConfirmModalState } from '../AdminDashboard';
+import { ApiError, subirArchivo } from '../../servicios/api';
 
 export interface NewInventoryItemState {
   name: string;
   stock: string;
   totalCost: string;
+  unitCost: string;
   unit: string;
   category: string;
   supplier: string;
   notes: string;
+  image?: string;
 }
 
 interface InventorySectionProps {
@@ -25,6 +28,7 @@ interface InventorySectionProps {
   filteredInventory: InventoryItem[];
   filteredInventoryLogs: InventoryLog[];
   addInventoryItem: (item: InventoryItem) => Promise<void>;
+  updateInventoryItem: (id: string, updates: Partial<InventoryItem>) => Promise<void>;
   updateInventoryStock: (id: string, amount: number) => Promise<void>;
   deleteInventoryItem: (id: string) => Promise<void>;
   newItem: NewInventoryItemState;
@@ -44,6 +48,7 @@ export default function InventorySection({
   filteredInventory,
   filteredInventoryLogs,
   addInventoryItem,
+  updateInventoryItem,
   updateInventoryStock,
   deleteInventoryItem,
   newItem,
@@ -57,47 +62,107 @@ export default function InventorySection({
   showToast,
   setConfirmModal,
 }: InventorySectionProps) {
-    const handleAddItem = () => {
-      if (!newItem.name.trim() || !newItem.stock) return;
-      const stockNum = parseInt(newItem.stock) || 0;
-      const totalCostNum = parseFloat(newItem.totalCost) || 0;
-      const unitCostNum = stockNum > 0 && totalCostNum > 0 ? totalCostNum / stockNum : 0;
+    const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
+
+    const emptyNewItem = {
+      name: '', stock: '', totalCost: '', unitCost: '', unit: 'Unidades',
+      category: 'General', supplier: '', notes: '', image: ''
+    };
+
+    const [isUploadingImage, setIsUploadingImage] = React.useState(false);
+    const handleImageSelected = async (file: File) => {
+      setIsUploadingImage(true);
+      try {
+        const { url } = await subirArchivo('/uploads/product-image', 'image', file);
+        setNewItem(prev => ({ ...prev, image: url }));
+      } catch (err) {
+        const mensaje = err instanceof ApiError ? err.message : 'No se pudo subir la imagen.';
+        showToast('danger', mensaje, 'No se Subió la Imagen');
+      } finally {
+        setIsUploadingImage(false);
+      }
+    };
+
+    const handleOpenCreateModal = () => {
+      setEditingItemId(null);
+      setNewItem(emptyNewItem);
+      setIsInventoryModalOpen(true);
+    };
+
+    const handleOpenEditModal = (item: InventoryItem) => {
+      setEditingItemId(item.id);
+      setNewItem({
+        name: item.name || '',
+        stock: '',
+        totalCost: '',
+        unitCost: item.unitCost ? String(Math.round(item.unitCost)) : '',
+        unit: item.unit || 'Unidades',
+        category: item.category || 'General',
+        supplier: item.supplier || '',
+        notes: item.notes || '',
+        image: item.image || ''
+      });
+      setIsInventoryModalOpen(true);
+    };
+
+    const handleAddItem = async () => {
+      if (!newItem.name.trim()) return;
       const itemName = newItem.name.trim();
       const itemUnit = newItem.unit || 'Unidades';
 
-      addInventoryItem({
-        id: Date.now().toString(),
-        name: itemName,
-        stock: stockNum,
-        totalCost: totalCostNum,
-        unitCost: unitCostNum,
-        unit: itemUnit,
-        category: newItem.category || 'General',
-        supplier: newItem.supplier?.trim() || '',
-        notes: newItem.notes?.trim() || '',
-        createdAt: new Date().toISOString()
-      });
+      try {
+        if (editingItemId) {
+          await updateInventoryItem(editingItemId, {
+            name: itemName,
+            unit: itemUnit,
+            category: newItem.category || 'General',
+            unitCost: parseFloat(newItem.unitCost) || 0,
+            supplier: newItem.supplier?.trim() || '',
+            notes: newItem.notes?.trim() || '',
+            image: newItem.image || '',
+          });
+          showToast('inventory', 'El insumo ha sido actualizado correctamente.', 'Insumo Actualizado');
+        } else {
+          if (!newItem.stock) return;
+          const stockNum = parseInt(newItem.stock) || 0;
+          const totalCostNum = parseFloat(newItem.totalCost) || 0;
+          const unitCostNum = stockNum > 0 && totalCostNum > 0 ? totalCostNum / stockNum : 0;
 
-      showToast('inventory', 'El insumo ha sido guardado exitosamente.', 'Insumo Registrado');
+          await addInventoryItem({
+            id: Date.now().toString(),
+            name: itemName,
+            stock: stockNum,
+            totalCost: totalCostNum,
+            unitCost: unitCostNum,
+            unit: itemUnit,
+            category: newItem.category || 'General',
+            supplier: newItem.supplier?.trim() || '',
+            notes: newItem.notes?.trim() || '',
+            image: newItem.image || '',
+            createdAt: new Date().toISOString()
+          });
+          showToast('inventory', 'El insumo ha sido guardado exitosamente.', 'Insumo Registrado');
+        }
 
-      setNewItem({
-        name: '',
-        stock: '',
-        totalCost: '',
-        unit: 'Unidades',
-        category: 'General',
-        supplier: '',
-        notes: ''
-      });
-      setIsInventoryModalOpen(false);
+        setEditingItemId(null);
+        setNewItem(emptyNewItem);
+        setIsInventoryModalOpen(false);
+      } catch (err) {
+        const mensaje = err instanceof ApiError ? err.message : 'No se pudo guardar el insumo.';
+        showToast('danger', mensaje, editingItemId ? 'No se Actualizó el Insumo' : 'No se Guardó el Insumo');
+      }
     };
 
-    const addStock = (id: string, amountStr: string) => {
+    const addStock = async (id: string, amountStr: string) => {
       const amount = parseInt(amountStr);
       if (isNaN(amount) || amount <= 0) return;
-      const targetItem = inventory.find(i => i.id === id);
-      updateInventoryStock(id, amount);
-      showToast('inventory', 'La cantidad del insumo fue actualizada.', 'Stock Actualizado');
+      try {
+        await updateInventoryStock(id, amount);
+        showToast('inventory', 'La cantidad del insumo fue actualizada.', 'Stock Actualizado');
+      } catch (err) {
+        const mensaje = err instanceof ApiError ? err.message : 'No se pudo actualizar el stock.';
+        showToast('danger', mensaje, 'No se Actualizó el Stock');
+      }
     };
 
     const criticalItemsCount = inventory.filter(i => (i.stock || 0) <= 10).length;
@@ -116,18 +181,7 @@ export default function InventorySection({
             <p className="text-gray-600 dark:text-stone-400 font-medium">Actualización rápida de existencias.</p>
           </div>
           <button
-            onClick={() => {
-              setNewItem({
-                name: '',
-                stock: '',
-                totalCost: '',
-                unit: 'Unidades',
-                category: 'General',
-                supplier: '',
-                notes: ''
-              });
-              setIsInventoryModalOpen(true);
-            }}
+            onClick={handleOpenCreateModal}
             className="bg-brand-orange text-white px-6 py-3.5 rounded-full font-bold hover:bg-brand-orange/90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-orange/20 whitespace-nowrap self-start sm:self-auto cursor-pointer"
           >
             <Plus className="w-5 h-5" /> Registrar Insumo
@@ -187,6 +241,13 @@ export default function InventorySection({
 
             return (
               <div key={item.id} className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 p-6 md:px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-sm hover:shadow-md transition-shadow">
+                {item.image ? (
+                  <img src={item.image} alt={item.name} className="w-16 h-16 rounded-2xl object-cover shrink-0 border border-gray-100 dark:border-stone-700" />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0" title="Sin foto: agrégala al editar">
+                    <ImagePlus className="w-6 h-6" />
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                     <h3 className="font-bold text-xl text-gray-900 dark:text-white">{item.name}</h3>
@@ -237,15 +298,20 @@ export default function InventorySection({
                       min="0"
                     />
                   </div>
-                  <button 
-                    onClick={() => {
+                  <button
+                    onClick={async () => {
                       const input = document.getElementById(`add-stock-${item.id}`) as HTMLInputElement;
                       if (input) {
                         const amount = parseInt(input.value);
                         if (isNaN(amount) || amount <= 0) return;
-                        updateInventoryStock(item.id, -amount);
-                        showToast('inventory', 'La cantidad del insumo fue actualizada.', 'Stock Actualizado');
-                        input.value = '0';
+                        try {
+                          await updateInventoryStock(item.id, -amount);
+                          showToast('inventory', 'La cantidad del insumo fue actualizada.', 'Stock Actualizado');
+                          input.value = '0';
+                        } catch (err) {
+                          const mensaje = err instanceof ApiError ? err.message : 'No se pudo actualizar el stock.';
+                          showToast('danger', mensaje, 'No se Actualizó el Stock');
+                        }
                       }
                     }}
                     title="Registrar Merma / Restar"
@@ -266,7 +332,14 @@ export default function InventorySection({
                   >
                     <Plus className="w-6 h-6" />
                   </button>
-                  <button 
+                  <button
+                    onClick={() => handleOpenEditModal(item)}
+                    title="Editar insumo"
+                    className="w-12 h-12 rounded-full border border-gray-200 dark:border-stone-700 flex items-center justify-center text-gray-500 dark:text-stone-400 hover:bg-gray-100 dark:hover:bg-stone-800 hover:text-brand-orange transition-colors shrink-0 cursor-pointer"
+                  >
+                    <Edit2 className="w-5 h-5" />
+                  </button>
+                  <button
                     onClick={() => {
                       const itemName = item.name;
                       const itemId = item.id;
@@ -277,10 +350,16 @@ export default function InventorySection({
                         confirmText: 'Sí, eliminar',
                         cancelText: 'Cancelar',
                         type: 'danger',
-                        onConfirm: () => {
-                          deleteInventoryItem(itemId);
-                          showToast('danger', 'El insumo fue eliminado del inventario.', 'Insumo Eliminado');
-                          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                        onConfirm: async () => {
+                          try {
+                            await deleteInventoryItem(itemId);
+                            showToast('danger', 'El insumo fue eliminado del inventario.', 'Insumo Eliminado');
+                          } catch (err) {
+                            const mensaje = err instanceof ApiError ? err.message : 'No se pudo eliminar el insumo.';
+                            showToast('danger', mensaje, 'No se Eliminó el Insumo');
+                          } finally {
+                            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                          }
                         }
                       });
                     }}
@@ -298,7 +377,7 @@ export default function InventorySection({
                <Package className="w-12 h-12 text-gray-300 dark:text-stone-700 mb-4" />
                <p className="text-gray-500 font-medium mb-4">El inventario está vacío. Registra los insumos comprados.</p>
                <button
-                 onClick={() => setIsInventoryModalOpen(true)}
+                 onClick={handleOpenCreateModal}
                  className="bg-brand-orange text-white px-6 py-3 rounded-full font-bold hover:bg-brand-orange/90 transition-all flex items-center gap-2 shadow-sm cursor-pointer"
                >
                  <Plus className="w-5 h-5" /> Registrar Primer Insumo
@@ -329,11 +408,13 @@ export default function InventorySection({
                 <div className="p-6 md:p-8 border-b border-gray-100 dark:border-stone-800 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-2xl bg-orange-50 dark:bg-orange-900/20 text-brand-orange flex items-center justify-center shrink-0">
-                      <PlusCircle className="w-6 h-6" />
+                      {editingItemId ? <Edit2 className="w-6 h-6" /> : <PlusCircle className="w-6 h-6" />}
                     </div>
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">Registrar Nuevo Insumo</h3>
-                      <p className="text-xs text-gray-500 dark:text-stone-400">Ingresa la cantidad adquirida y el costo total de compra.</p>
+                      <h3 className="text-xl font-bold text-gray-900 dark:text-white">{editingItemId ? 'Editar Insumo' : 'Registrar Nuevo Insumo'}</h3>
+                      <p className="text-xs text-gray-500 dark:text-stone-400">
+                        {editingItemId ? 'Actualiza los datos de este insumo. El stock se ajusta desde la lista.' : 'Ingresa la cantidad adquirida y el costo total de compra.'}
+                      </p>
                     </div>
                   </div>
                   <button
@@ -346,6 +427,30 @@ export default function InventorySection({
 
                 {/* Modal Body */}
                 <div className="p-6 md:p-8 space-y-5 max-h-[70vh] overflow-y-auto">
+                  {/* Foto real del insumo */}
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Foto del Insumo</label>
+                    <label className="flex items-center gap-4 p-3 rounded-2xl border border-dashed border-gray-300 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 cursor-pointer hover:border-brand-orange transition-colors">
+                      {newItem.image ? (
+                        <img src={newItem.image} alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                      ) : (
+                        <div className="w-16 h-16 rounded-xl bg-white dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                          <ImagePlus className="w-6 h-6" />
+                        </div>
+                      )}
+                      <div className="text-sm">
+                        <p className="font-bold text-gray-800 dark:text-stone-200">{isUploadingImage ? 'Subiendo...' : newItem.image ? 'Cambiar foto' : 'Subir foto real'}</p>
+                        <p className="text-xs text-gray-500 dark:text-stone-400">Se muestra al cliente en el armado y los extras. JPG, PNG o WEBP, máx. 5 MB.</p>
+                      </div>
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handleImageSelected(f); e.target.value = ''; }}
+                      />
+                    </label>
+                  </div>
+
                   {/* Nombre */}
                   <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">
@@ -406,55 +511,75 @@ export default function InventorySection({
                     </div>
                   </div>
 
-                  {/* Cantidad y Costo Total */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {editingItemId ? (
+                    /* Modo edicion: el stock se ajusta con los botones +/- de la lista,
+                       aqui solo se corrige el costo por unidad directamente. */
                     <div>
                       <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">
-                        Cantidad Comprada <span className="text-red-500">*</span>
+                        Costo por Unidad ($ COP / {newItem.unit})
                       </label>
-                      <input 
-                        type="number" 
-                        min="1"
-                        value={newItem.stock} 
-                        onChange={e => setNewItem({...newItem, stock: e.target.value})} 
-                        className="w-full px-5 py-3.5 rounded-2xl border border-gray-200 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-all font-bold" 
-                        placeholder="Ej: 50" 
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">
-                        Costo Total de Compra ($ COP)
-                      </label>
-                      <input 
-                        type="number" 
+                      <input
+                        type="number"
                         min="0"
-                        value={newItem.totalCost} 
-                        onChange={e => setNewItem({...newItem, totalCost: e.target.value})} 
-                        className="w-full px-5 py-3.5 rounded-2xl border border-gray-200 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-all font-bold" 
-                        placeholder="Ej: 75000" 
+                        value={newItem.unitCost}
+                        onChange={e => setNewItem({...newItem, unitCost: e.target.value})}
+                        className="w-full px-5 py-3.5 rounded-2xl border border-gray-200 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-all font-bold"
+                        placeholder="Ej: 1500"
                       />
                     </div>
-                  </div>
+                  ) : (
+                    <>
+                      {/* Cantidad y Costo Total */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">
+                            Cantidad Comprada <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={newItem.stock}
+                            onChange={e => setNewItem({...newItem, stock: e.target.value})}
+                            className="w-full px-5 py-3.5 rounded-2xl border border-gray-200 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-all font-bold"
+                            placeholder="Ej: 50"
+                          />
+                        </div>
 
-                  {/* Preview del Costo Unitario Calculado */}
-                  {parseFloat(newItem.stock) > 0 && parseFloat(newItem.totalCost) > 0 && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/20 border border-orange-200/80 dark:border-orange-900/30 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="text-xs font-bold text-brand-orange uppercase tracking-wider">Costo Unitario Calculado</p>
-                        <p className="text-lg font-black text-gray-900 dark:text-white">
-                          {formatCOP(parseFloat(newItem.totalCost) / parseFloat(newItem.stock))} <span className="text-xs font-normal text-gray-500">/ {newItem.unit}</span>
-                        </p>
+                        <div>
+                          <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">
+                            Costo Total de Compra ($ COP)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newItem.totalCost}
+                            onChange={e => setNewItem({...newItem, totalCost: e.target.value})}
+                            className="w-full px-5 py-3.5 rounded-2xl border border-gray-200 dark:border-stone-700 bg-gray-50 dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:bg-white dark:focus:bg-stone-900 transition-all font-bold"
+                            placeholder="Ej: 75000"
+                          />
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-xs text-gray-500 dark:text-stone-400">Total Facturado</p>
-                        <p className="text-sm font-black text-brand-orange">{formatCOP(parseFloat(newItem.totalCost))}</p>
-                      </div>
-                    </motion.div>
+
+                      {/* Preview del Costo Unitario Calculado */}
+                      {parseFloat(newItem.stock) > 0 && parseFloat(newItem.totalCost) > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="p-4 rounded-2xl bg-orange-50 dark:bg-orange-950/20 border border-orange-200/80 dark:border-orange-900/30 flex items-center justify-between"
+                        >
+                          <div>
+                            <p className="text-xs font-bold text-brand-orange uppercase tracking-wider">Costo Unitario Calculado</p>
+                            <p className="text-lg font-black text-gray-900 dark:text-white">
+                              {formatCOP(parseFloat(newItem.totalCost) / parseFloat(newItem.stock))} <span className="text-xs font-normal text-gray-500">/ {newItem.unit}</span>
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-gray-500 dark:text-stone-400">Total Facturado</p>
+                            <p className="text-sm font-black text-brand-orange">{formatCOP(parseFloat(newItem.totalCost))}</p>
+                          </div>
+                        </motion.div>
+                      )}
+                    </>
                   )}
 
                   {/* Proveedor / Origen */}
@@ -482,10 +607,10 @@ export default function InventorySection({
                   </button>
                   <button
                     onClick={handleAddItem}
-                    disabled={!newItem.name.trim() || !newItem.stock}
+                    disabled={!newItem.name.trim() || (editingItemId ? false : !newItem.stock)}
                     className="flex-1 py-3.5 rounded-full font-bold transition-all bg-brand-orange text-white shadow-lg shadow-brand-orange/20 hover:bg-brand-orange/90 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
                   >
-                    <Plus className="w-5 h-5" /> Guardar Insumo
+                    {editingItemId ? <><Edit2 className="w-5 h-5" /> Guardar Cambios</> : <><Plus className="w-5 h-5" /> Guardar Insumo</>}
                   </button>
                 </div>
               </motion.div>
@@ -512,70 +637,36 @@ export default function InventorySection({
           </div>
           
           
-        <div className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto hidden md:block">
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead>
-                <tr className="bg-gray-50/50 dark:bg-[#1A1A1A]/50 border-b border-gray-100 dark:border-stone-800 text-xs font-black text-gray-500 dark:text-stone-400 uppercase tracking-wider">
-                  <th className="p-6">Fecha</th>
-                  <th className="p-6">Insumo</th>
-                  <th className="p-6">Tipo</th>
-                  <th className="p-6">Cantidad</th>
-                  <th className="p-6">Motivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-stone-800">
-                {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50/50 dark:hover:bg-[#1A1A1A]/50 transition-colors">
-                    <td className="p-6 text-sm font-medium text-gray-900 dark:text-white">
-                      {new Date(log.date).toLocaleString()}
-                    </td>
-                    <td className="p-6 text-sm text-gray-600 dark:text-stone-400 font-bold">{log.itemName}</td>
-                    <td className="p-6">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
-                        log.type === 'Entrada' 
-                          ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' 
-                          : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-                      }`}>
-                        {log.type}
-                      </span>
-                    </td>
-                    <td className="p-6 text-sm font-black text-gray-900 dark:text-white">
-                      {log.type === 'Entrada' ? '+' : '-'}{log.amount}
-                    </td>
-                    <td className="p-6 text-sm text-gray-500 dark:text-stone-500">{log.reason}</td>
-                  </tr>
-                )) : (
-                  <tr>
-                    <td colSpan={5} className="p-12 text-center text-gray-500 font-medium">No hay registros de movimientos.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          {/* Mobile Cards for Inventory Logs */}
-          <div className="md:hidden grid grid-cols-2 gap-3 p-3 border-t border-gray-100 dark:border-stone-800">
-            {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => (
-              <div key={log.id} className="bg-gray-50/50 dark:bg-[#1A1A1A]/50 border border-gray-100 dark:border-stone-800 rounded-2xl p-4 flex flex-col gap-2 relative overflow-hidden">
-                <div className={`absolute top-0 left-0 w-1 h-full ${log.type === 'Entrada' ? 'bg-green-500' : 'bg-red-500'}`} />
-                <div className="flex justify-between items-start gap-2">
-                  <h4 className="font-bold text-gray-900 dark:text-white text-[clamp(13px,3.5vw,14px)] line-clamp-2 leading-tight break-words">{log.itemName}</h4>
-                  <span className={`shrink-0 text-xs font-black whitespace-nowrap ${log.type === 'Entrada' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                    {log.type === 'Entrada' ? '+' : '-'}{log.amount}
-                  </span>
+        <div className="bg-white dark:bg-[#151515] rounded-[32px] border border-gray-100 dark:border-stone-800 overflow-hidden shadow-sm divide-y divide-gray-100 dark:divide-stone-800">
+          {filteredInventoryLogs.length > 0 ? filteredInventoryLogs.map((log) => {
+            const isEntrada = log.type === 'Entrada';
+            const logDate = new Date(log.date);
+            return (
+              <div key={log.id} className="flex items-center gap-4 p-5 md:p-6 hover:bg-gray-50/50 dark:hover:bg-[#1A1A1A]/50 transition-colors">
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                  isEntrada
+                    ? 'bg-green-50 text-green-600 dark:bg-green-900/20 dark:text-green-400'
+                    : 'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400'
+                }`}>
+                  {isEntrada ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
                 </div>
-                <p className="text-[10px] text-gray-500 font-medium">
-                  {new Date(log.date).toLocaleDateString()}
-                </p>
-                <p className="text-[clamp(11px,3vw,12px)] text-gray-600 dark:text-stone-400 line-clamp-2 mt-1 break-words">
-                  {log.reason}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{log.itemName}</p>
+                  <p className="text-xs text-gray-500 dark:text-stone-500 truncate mt-0.5">{log.reason}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`font-black text-sm ${isEntrada ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                    {isEntrada ? '+' : '-'}{log.amount}
+                  </p>
+                  <p className="text-[11px] text-gray-400 dark:text-stone-600 mt-0.5 whitespace-nowrap">
+                    {logDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' })} · {logDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
               </div>
-            )) : (
-              <div className="col-span-2 text-center text-gray-500 font-medium py-8">No hay registros.</div>
-            )}
-          </div>
-
+            );
+          }) : (
+            <div className="p-12 text-center text-gray-500 font-medium">No hay registros de movimientos.</div>
+          )}
         </div>
         </div>
       </div>

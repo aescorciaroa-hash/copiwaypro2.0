@@ -33,8 +33,8 @@ class IntentoLogin {
 
     public function registrar($identificador, $ip, $exitoso) {
         $stmt = $this->consulta(
-            'INSERT INTO INTENTO_LOGIN (id_intento, identificador, ip, exitoso) VALUES (?, ?, ?, ?)',
-            ['', $identificador, $ip, $exitoso ? 1 : 0]
+            'INSERT INTO INTENTO_LOGIN (identificador, ip, exitoso) VALUES (?, ?, ?)',
+            [$identificador, $ip, $exitoso ? 1 : 0]
         );
         $stmt->close();
     }

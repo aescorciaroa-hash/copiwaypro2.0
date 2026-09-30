@@ -16,6 +16,9 @@ header('Content-Type: text/html; charset=utf-8');
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CopiwayPRO</title>
+    <link rel="icon" type="image/svg+xml" href="<?php echo rutaBase(); ?>/favicon.svg">
+    <link rel="manifest" href="<?php echo rutaBase(); ?>/manifest.json">
+    <meta name="theme-color" content="#f97316">
     <link rel="stylesheet" href="<?php echo rutaBase(); ?>/assets/main.css?v=<?php echo $verCss; ?>">
     <script>window.__APP_BASE__=<?php echo $baseJson; ?>;window.__DATOS__=<?php echo $datosJson; ?>;</script>
 </head>

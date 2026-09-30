@@ -4,7 +4,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-import { formatCOP } from '../../lib/format';
+import { formatCOP, orderCode } from '../../lib/format';
 import { Order, Staff, StoreConfig } from '../../store/almacenAplicacion';
 import { CustomSelect } from '../../components/CustomSelect';
 import { CustomTooltip } from '../AdminDashboard';
@@ -21,6 +21,7 @@ interface OverviewSectionProps {
   staff: Staff[];
   storeConfig: StoreConfig;
   salesData: Array<{ date: string; amount: number }>;
+  periodOrdersCount: number;
   salesFilter: string;
   setSalesFilter: (value: string) => void;
   topProductsData: TopProductDatum[];
@@ -35,6 +36,7 @@ export default function OverviewSection({
   staff,
   storeConfig,
   salesData,
+  periodOrdersCount,
   salesFilter,
   setSalesFilter,
   topProductsData,
@@ -54,12 +56,20 @@ export default function OverviewSection({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 lg:gap-8">
-        {[
-          { label: 'Ventas Totales', value: formatCOP(salesData.reduce((a, b) => a + b.amount, 0)), icon: <Wallet className="w-5 h-5 text-brand-orange" />, badge: '+12.5%', badgeColor: 'text-emerald-600 bg-emerald-50' },
-          { label: 'Órdenes Hoy', value: orders.length, icon: <LayoutDashboard className="w-5 h-5 text-blue-500" />, badge: 'Hoy', badgeColor: 'text-gray-600 bg-gray-100' },
-          { label: 'Ticket Promedio', value: formatCOP(orders.length ? salesData.reduce((a, b) => a + b.amount, 0) / orders.length : 0), icon: <TrendingUp className="w-5 h-5 text-gray-600" />, badge: 'Alto', badgeColor: 'text-brand-orange bg-orange-50' },
-          { label: 'Empleados Activos', value: staff.filter(s => s.active).length, icon: <Users className="w-5 h-5 text-emerald-500" />, badge: '•', badgeColor: 'text-emerald-500 bg-transparent text-xl leading-none' }
-        ].map((stat, i) => (
+        {(() => {
+          const totalVentasPeriodo = salesData.reduce((a, b) => a + b.amount, 0);
+          const hoy = new Date();
+          const ordenesHoy = orders.filter(o => {
+            const fecha = new Date(o.date);
+            return fecha.getFullYear() === hoy.getFullYear() && fecha.getMonth() === hoy.getMonth() && fecha.getDate() === hoy.getDate();
+          }).length;
+          return [
+            { label: 'Ventas Totales', value: formatCOP(totalVentasPeriodo), icon: <Wallet className="w-5 h-5 text-brand-orange" />, badge: salesFilter, badgeColor: 'text-emerald-600 bg-emerald-50' },
+            { label: 'Órdenes Hoy', value: ordenesHoy, icon: <LayoutDashboard className="w-5 h-5 text-blue-500" />, badge: 'Hoy', badgeColor: 'text-gray-600 bg-gray-100' },
+            { label: 'Ticket Promedio', value: formatCOP(periodOrdersCount ? totalVentasPeriodo / periodOrdersCount : 0), icon: <TrendingUp className="w-5 h-5 text-gray-600" />, badge: salesFilter, badgeColor: 'text-brand-orange bg-orange-50' },
+            { label: 'Empleados Activos', value: staff.filter(s => s.active).length, icon: <Users className="w-5 h-5 text-emerald-500" />, badge: '•', badgeColor: 'text-emerald-500 bg-transparent text-xl leading-none' }
+          ];
+        })().map((stat, i) => (
           <div key={i} className="bg-white dark:bg-[#151515] rounded-[24px] border border-gray-100 dark:border-stone-800 shadow-sm py-4 px-4 sm:p-8 relative overflow-hidden">
             <div className="flex justify-between items-start mb-4">
               <div className="w-10 h-10 rounded-xl bg-gray-50 dark:bg-stone-800 flex items-center justify-center">
@@ -238,7 +248,7 @@ export default function OverviewSection({
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-9 h-9 rounded-xl bg-white dark:bg-stone-800 text-brand-orange flex items-center justify-center font-black text-xs shrink-0 shadow-sm border border-gray-100 dark:border-stone-700">
-                      {ord.id.replace(/[^0-9]/g, '').slice(-2) || '#'}
+                      {ord.id.replace(/[^0-9]/g, '').slice(-2) || orderCode(ord.id).slice(0, 2).toUpperCase()}
                     </div>
                     <div className="min-w-0">
                       <p className="font-bold text-gray-900 dark:text-white text-sm truncate group-hover:text-brand-orange transition-colors">
@@ -403,7 +413,7 @@ export default function OverviewSection({
                     {orders.filter(o => o.status === 'En Camino').slice(0, 2).map((ord) => (
                       <div key={ord.id} className="flex items-center justify-between text-xs bg-white dark:bg-stone-800/80 px-2.5 py-1.5 rounded-xl border border-gray-100 dark:border-stone-700">
                         <span className="font-semibold text-gray-800 dark:text-stone-200 truncate max-w-[170px]">
-                          {ord.client || ord.id}: {ord.address}
+                          {ord.client || orderCode(ord.id)}: {ord.address}
                         </span>
                         <span className="text-[10px] font-bold text-brand-orange bg-orange-50 dark:bg-orange-950/40 px-2 py-0.5 rounded-md shrink-0">
                           En camino

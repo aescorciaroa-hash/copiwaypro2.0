@@ -28,7 +28,7 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
     // requiresDeliveryPin es un booleano seguro de exponer a todos (el
     // frontend del domiciliario lo usa solo para decidir si pedir el PIN).
     return [
-        'id' => '#ORD-' . $fila['numero_pedido'],
+        'id' => '#ORD-' . $fila['id_pedido'],
         'status' => $estado,
         'client' => $fila['cliente_nombre'],
         'clientPhone' => $mostrarTelefono ? $fila['cliente_telefono'] : null,
@@ -50,6 +50,7 @@ function pedido_a_json($fila, $items, $rolQueVe, $idQueVe) {
         'date' => $fila['fecha_hora'],
         'time' => date('H:i', strtotime($fila['fecha_hora'])),
         'paymentMethod' => $fila['metodo_pago'] === 'efectivo' ? 'cash' : 'online',
+        'digitalBank' => $fila['banco_digital'] ?? null,
         'paymentStatus' => $fila['estado_pago'] === 'aprobado' ? 'Pagado' : ucfirst($fila['estado_pago']),
     ];
 }

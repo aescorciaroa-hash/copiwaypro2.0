@@ -107,7 +107,7 @@ class Configuracion {
             return;
         }
 
-        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES ('', ?, 'menu')", [$nombre]);
+        $stmtIns = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES (?, 'menu')", [$nombre]);
         $stmtIns->close();
     }
 
@@ -160,5 +160,12 @@ class Configuracion {
         $resultado = $this->conn->query('SELECT id_ingrediente_bolsa_global FROM CONFIGURACION_SISTEMA LIMIT 1');
         $fila = $resultado->fetch_assoc();
         return $fila['id_ingrediente_bolsa_global'] ?: null;
+    }
+
+    /** % de ganancia comercial que el admin configura en Ajustes (ej. 30). */
+    public function margenGanancia() {
+        $resultado = $this->conn->query('SELECT margen_ganancia_defecto FROM CONFIGURACION_SISTEMA LIMIT 1');
+        $fila = $resultado->fetch_assoc();
+        return (float) $fila['margen_ganancia_defecto'];
     }
 }

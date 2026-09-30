@@ -4,7 +4,7 @@
 
 function ingrediente_a_inventario($fila) {
     return [
-        'id' => $fila['id_ingrediente'],
+        'id' => (string) $fila['id_ingrediente'],
         'name' => $fila['nombre'],
         'stock' => (float) $fila['cantidad_stock'],
         'totalCost' => $fila['costo_total'] !== null ? (float) $fila['costo_total'] : null,
@@ -13,6 +13,7 @@ function ingrediente_a_inventario($fila) {
         'category' => $fila['categoria_nombre'],
         'supplier' => $fila['proveedor'],
         'notes' => $fila['notas'],
+        'image' => $fila['imagen'],
         'createdAt' => $fila['creado_en'],
     ];
 }
@@ -23,10 +24,11 @@ function ingrediente_a_catalogo($fila) {
         $precio = (float) $fila['costo_unitario'];
     }
     return [
-        'id' => $fila['id_ingrediente'],
+        'id' => (string) $fila['id_ingrediente'],
         'name' => $fila['nombre'],
         'price' => $precio,
         'category' => $fila['categoria_nombre'],
         'stock' => (float) $fila['cantidad_stock'],
+        'image' => $fila['imagen'],
     ];
 }

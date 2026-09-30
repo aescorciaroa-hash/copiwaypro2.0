@@ -150,11 +150,11 @@ class Cliente {
     public function crear($datos) {
         $stmt = $this->consulta(
             'INSERT INTO CLIENTE
-                (id_cliente, nombre, telefono, correo, contrasena, direccion, fecha_nacimiento,
+                (nombre, telefono, correo, contrasena, direccion, fecha_nacimiento,
                  fecha_aceptacion_habeas_data, ip_aceptacion_habeas_data)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
             [
-                '', $datos['name'], $datos['phone'], $datos['email'],
+                $datos['name'], $datos['phone'], $datos['email'],
                 password_hash($datos['password'], PASSWORD_DEFAULT),
                 $datos['address'] ?? null, $datos['birthday'],
                 date('Y-m-d H:i:s'), $datos['ip'] ?? '0.0.0.0',
@@ -162,7 +162,7 @@ class Cliente {
         );
         $stmt->close();
 
-        return $this->buscarIdPorCorreo($datos['email']);
+        return $this->conn->insert_id;
     }
 
     public function actualizarContrasena($id, $hash) {

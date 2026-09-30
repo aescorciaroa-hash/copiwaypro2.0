@@ -68,6 +68,10 @@ class PedidoService {
         }
 
         // ---- Recalcula todo en el servidor; nunca confia en precios/totales del cliente ----
+        // El PVP de cada insumo no se guarda manualmente: se deriva del costo unitario
+        // (Inventario Express) + el margen de ganancia que el admin configura en Ajustes,
+        // igual que lo previsualiza el Creador Interactivo del lado del cliente.
+        $margen = $configuracion->margenGanancia();
         $itemsResueltos = [];
         $subtotal = 0.0;
 
@@ -76,7 +80,7 @@ class PedidoService {
 
             if (empty($item['productId']) && !empty($item['stack'])) {
                 // "Creador interactivo": hamburguesa armada capa por capa, sin producto base.
-                $pila = $this->resolverIngredientes($item['stack']);
+                $pila = $this->resolverIngredientes($item['stack'], $margen);
                 if (empty($pila)) {
                     throw new InvalidArgumentException('La hamburguesa personalizada no tiene ingredientes válidos.');
                 }
@@ -101,8 +105,8 @@ class PedidoService {
                 throw new InvalidArgumentException('Uno de los productos del carrito ya no está disponible.');
             }
 
-            $extras = $this->resolverIngredientes($item['extras'] ?? []);
-            $removidos = $this->resolverIngredientes($item['removed'] ?? []);
+            $extras = $this->resolverIngredientes($item['extras'] ?? [], $margen);
+            $removidos = $this->resolverIngredientes($item['removed'] ?? [], $margen);
 
             $costoExtras = array_sum(array_map(function ($e) { return (float) $e['precio_extra']; }, $extras));
             $precioUnitario = (float) $producto['precio'] + $costoExtras;
@@ -124,6 +128,8 @@ class PedidoService {
 
         $esEfectivo = ($payload['paymentMethod'] ?? 'online') === 'cash';
         $metodoPago = $esEfectivo ? 'efectivo' : 'digital';
+        $bancosValidos = ['nequi', 'daviplata', 'bancolombia'];
+        $bancoDigital = (!$esEfectivo && in_array($payload['bank'] ?? '', $bancosValidos, true)) ? $payload['bank'] : null;
         $estadoPago = 'pendiente';
         $fechaPago = null;
         $comprobante = null;
@@ -143,40 +149,40 @@ class PedidoService {
 
         $this->conn->begin_transaction();
         try {
-            $idPedido = generarUuid();
             $insertar = $this->consulta(
                 "INSERT INTO PEDIDO
-                    (id_pedido, id_cliente, direccion_entrega, destino_lat, destino_lng, estado,
-                     canal_origen, metodo_pago, estado_pago, fecha_pago, comprobante_pago,
+                    (id_cliente, direccion_entrega, destino_lat, destino_lng, estado,
+                     canal_origen, metodo_pago, banco_digital, estado_pago, fecha_pago, comprobante_pago,
                      subtotal, costo_domicilio, descuento_cumpleanos, puntos_ganados, total)
-                 VALUES (?, ?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                 VALUES (?, ?, ?, ?, 'pendiente', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 [
-                    $idPedido, $idCliente, $payload['address'] ?? $cliente['direccion'],
+                    $idCliente, $payload['address'] ?? $cliente['direccion'],
                     $payload['lat'] ?? null, $payload['lng'] ?? null,
-                    $metodoPago, $estadoPago, $fechaPago, $comprobante,
+                    $metodoPago, $bancoDigital, $estadoPago, $fechaPago, $comprobante,
                     $subtotal, $envio, $descuento, $puntos, $total,
                 ]
             );
             $insertar->close();
+            $idPedido = $this->conn->insert_id;
 
             $lineasDescuento = [];
 
             foreach ($itemsResueltos as $resuelto) {
                 $producto = $resuelto['producto'];
-                $idDetalle = generarUuid();
                 $esPersonalizado = (!empty($resuelto['extras']) || !empty($resuelto['removidos'])) ? 1 : 0;
 
                 $stmtDetalle = $this->consulta(
-                    'INSERT INTO DETALLE_PEDIDO (id_detalle, id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, es_personalizado)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)',
-                    [$idDetalle, $idPedido, $producto['id_producto'], $producto['nombre'], $resuelto['cantidad'], $resuelto['precioUnitario'], $esPersonalizado]
+                    'INSERT INTO DETALLE_PEDIDO (id_pedido, id_producto, nombre_producto, cantidad, precio_unitario, es_personalizado)
+                     VALUES (?, ?, ?, ?, ?, ?)',
+                    [$idPedido, $producto['id_producto'], $producto['nombre'], $resuelto['cantidad'], $resuelto['precioUnitario'], $esPersonalizado]
                 );
                 $stmtDetalle->close();
+                $idDetalle = $this->conn->insert_id;
 
                 foreach ($resuelto['extras'] as $extra) {
                     $stmtExtra = $this->consulta(
-                        "INSERT INTO PERSONALIZACION (id_personalizacion, id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
-                         VALUES ('', ?, ?, ?, 'agregar', 1, ?)",
+                        "INSERT INTO PERSONALIZACION (id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
+                         VALUES (?, ?, ?, 'agregar', 1, ?)",
                         [$idDetalle, $extra['id_ingrediente'], $extra['nombre'], $extra['precio_extra']]
                     );
                     $stmtExtra->close();
@@ -184,14 +190,14 @@ class PedidoService {
                     $lineasDescuento[] = [
                         'id_ingrediente' => $extra['id_ingrediente'],
                         'cantidad' => $resuelto['cantidad'],
-                        'motivo' => 'Extra pedido #ORD-' . $this->numeroPendiente($idPedido),
+                        'motivo' => 'Extra pedido #ORD-' . $idPedido,
                     ];
                 }
 
                 foreach ($resuelto['removidos'] as $removido) {
                     $stmtQuitar = $this->consulta(
-                        "INSERT INTO PERSONALIZACION (id_personalizacion, id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
-                         VALUES ('', ?, ?, ?, 'quitar', 1, 0)",
+                        "INSERT INTO PERSONALIZACION (id_detalle, id_ingrediente, nombre_ingrediente, accion_modificacion, cantidad, costo_aplicado)
+                         VALUES (?, ?, ?, 'quitar', 1, 0)",
                         [$idDetalle, $removido['id_ingrediente'], $removido['nombre']]
                     );
                     $stmtQuitar->close();
@@ -258,17 +264,17 @@ class PedidoService {
         $stmtBuscarCat->close();
 
         if (!$filaCategoria) {
-            $stmtCrearCat = $this->consulta("INSERT INTO CATEGORIA (id_categoria, nombre, ambito) VALUES ('', 'Personalizado', 'menu')");
+            $stmtCrearCat = $this->consulta("INSERT INTO CATEGORIA (nombre, ambito) VALUES ('Personalizado', 'menu')");
             $stmtCrearCat->close();
-            $stmtBuscarCat2 = $this->consulta("SELECT id_categoria FROM CATEGORIA WHERE nombre = 'Personalizado' AND ambito = 'menu' LIMIT 1");
-            $filaCategoria = $stmtBuscarCat2->get_result()->fetch_assoc();
-            $stmtBuscarCat2->close();
+            $idCategoriaPersonalizado = $this->conn->insert_id;
+        } else {
+            $idCategoriaPersonalizado = $filaCategoria['id_categoria'];
         }
 
         $stmtCrearProd = $this->consulta(
-            "INSERT INTO PRODUCTO (id_producto, id_categoria, nombre, precio, estado)
-             VALUES ('', ?, 'Hamburguesa Personalizada', 0, 'oculto')",
-            [$filaCategoria['id_categoria']]
+            "INSERT INTO PRODUCTO (id_categoria, nombre, precio, estado)
+             VALUES (?, 'Hamburguesa Personalizada', 0, 'oculto')",
+            [$idCategoriaPersonalizado]
         );
         $stmtCrearProd->close();
 
@@ -278,15 +284,13 @@ class PedidoService {
         return $producto;
     }
 
-    private function numeroPendiente($idPedido) {
-        $stmt = $this->consulta('SELECT numero_pedido FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
-        $fila = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-        return $fila ? (int) $fila['numero_pedido'] : 0;
-    }
-
-    /** @return array de {id_ingrediente, nombre, precio_extra} */
-    private function resolverIngredientes($referencias) {
+    /**
+     * @param float $margen Porcentaje de ganancia (Ajustes) a aplicar sobre el costo_unitario
+     *   del insumo. INGREDIENTE.precio_extra no se usa como precio de venta: es el mismo
+     *   insumo de Inventario Express, y ahi solo se captura su costo, nunca un precio manual.
+     * @return array de {id_ingrediente, nombre, precio_extra}
+     */
+    private function resolverIngredientes($referencias, $margen = 0.0) {
         $resueltos = [];
         foreach ($referencias as $ref) {
             $fila = null;
@@ -303,10 +307,14 @@ class PedidoService {
             if (!$fila) {
                 continue; // ingrediente desconocido: se ignora en vez de romper el pedido
             }
+            // Igual al redondeo que ya preveia el Creador Interactivo en el cliente
+            // (ClientDashboard.tsx: Math.round((baseCost * (1 + margin/100)) / 100) * 100).
+            $costo = (float) $fila['costo_unitario'];
+            $pvp = round(($costo * (1 + $margen / 100)) / 100) * 100;
             $resueltos[] = [
                 'id_ingrediente' => $fila['id_ingrediente'],
                 'nombre' => $fila['nombre'],
-                'precio_extra' => (float) $fila['precio_extra'],
+                'precio_extra' => $pvp,
             ];
         }
         return $resueltos;
@@ -341,6 +349,29 @@ class PedidoService {
         $this->transicion($idPedido, ['pendiente', 'en_preparacion'], 'listo');
     }
 
+    /** El domiciliario toma un pedido 'listo': queda asignado a el, sin iniciar la ruta. */
+    public function tomarPedido($idPedido, $idDomiciliario) {
+        $this->conn->begin_transaction();
+        try {
+            $stmt = $this->consulta('SELECT estado, id_domiciliario FROM PEDIDO WHERE id_pedido = ? FOR UPDATE', [$idPedido]);
+            $fila = $stmt->get_result()->fetch_assoc();
+            $stmt->close();
+
+            if (!$fila || $fila['estado'] !== 'listo'
+                || ($fila['id_domiciliario'] !== null && $fila['id_domiciliario'] !== $idDomiciliario)) {
+                throw new Exception('Este pedido ya no está disponible para reparto.');
+            }
+
+            $stmtUpd = $this->consulta("UPDATE PEDIDO SET id_domiciliario = ? WHERE id_pedido = ?", [$idDomiciliario, $idPedido]);
+            $stmtUpd->close();
+
+            $this->conn->commit();
+        } catch (Exception $e) {
+            $this->conn->rollback();
+            throw $e;
+        }
+    }
+
     public function aceptarEntrega($idPedido, $idDomiciliario) {
         $this->conn->begin_transaction();
         try {
@@ -348,7 +379,8 @@ class PedidoService {
             $fila = $stmt->get_result()->fetch_assoc();
             $stmt->close();
 
-            if (!$fila || $fila['estado'] !== 'listo' || $fila['id_domiciliario'] !== null) {
+            if (!$fila || $fila['estado'] !== 'listo'
+                || ($fila['id_domiciliario'] !== null && $fila['id_domiciliario'] !== $idDomiciliario)) {
                 throw new Exception('Este pedido ya no está disponible para reparto.');
             }
 
@@ -364,7 +396,7 @@ class PedidoService {
 
     /** Entrega solo con PIN de 4 digitos verificado en el servidor. */
     public function confirmarEntrega($idPedido, $idDomiciliario, $pin) {
-        $stmt = $this->consulta('SELECT pin_entrega, estado, id_domiciliario FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
+        $stmt = $this->consulta('SELECT pin_entrega, estado, id_domiciliario, id_cliente FROM PEDIDO WHERE id_pedido = ?', [$idPedido]);
         $fila = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
@@ -377,6 +409,15 @@ class PedidoService {
 
         $stmtUpd = $this->consulta("UPDATE PEDIDO SET estado = 'entregado' WHERE id_pedido = ?", [$idPedido]);
         $stmtUpd->close();
+
+        // Notificacion real del sistema operativo (Web Push), no un aviso
+        // dentro de la app: si falla (VAPID sin configurar, sin conexion,
+        // sin suscripcion), la entrega ya quedo confirmada de todas formas.
+        try {
+            (new PushNotificationService($this->conn))->notificarPedidoEntregado($idPedido, (int) $fila['id_cliente']);
+        } catch (Throwable $e) {
+            error_log('No se pudo enviar la notificacion push de entrega: ' . $e->getMessage());
+        }
     }
 
     private function transicion($idPedido, $desdeValidos, $hacia) {
@@ -398,10 +439,10 @@ class PedidoService {
 
     public function calificar($idPedido, $puntaje, $comentario) {
         $stmt = $this->consulta(
-            'INSERT INTO RESENA (id_resena, id_pedido, puntaje, comentario)
-             VALUES (?, ?, ?, ?)
+            'INSERT INTO RESENA (id_pedido, puntaje, comentario)
+             VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE puntaje = VALUES(puntaje), comentario = VALUES(comentario)',
-            ['', $idPedido, $puntaje, $comentario]
+            [$idPedido, $puntaje, $comentario]
         );
         $stmt->close();
     }

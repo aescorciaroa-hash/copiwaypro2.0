@@ -7,6 +7,7 @@ import { Staff } from '../../store/almacenAplicacion';
 import { ToastData } from '../../components/ToastNotification';
 import { CustomSelect } from '../../components/CustomSelect';
 import { ConfirmModalState } from '../AdminDashboard';
+import { ApiError } from '../../servicios/api';
 
 export interface NewStaffState {
   name: string;
@@ -16,6 +17,8 @@ export interface NewStaffState {
   phone: string;
   plate: string;
   vehicle: string;
+  vehicleModel: string;
+  pin: string;
   baseCash: number | '';
 }
 
@@ -30,7 +33,7 @@ interface StaffSectionProps {
   setStaffSearch: React.Dispatch<React.SetStateAction<string>>;
   addStaff: (employee: Staff) => Promise<void>;
   updateStaff: (id: string, updates: Partial<Staff>) => Promise<void>;
-  deleteStaff: (id: string) => Promise<void>;
+  deleteStaff: (id: string, role?: string) => Promise<void>;
   newStaff: NewStaffState;
   setNewStaff: React.Dispatch<React.SetStateAction<NewStaffState>>;
   showStaffPassword: boolean;
@@ -60,47 +63,65 @@ export default function StaffSection({
   showToast,
   setConfirmModal,
 }: StaffSectionProps) {
-    const handleAddStaff = () => {
-      if (!newStaff.name || !newStaff.email || !newStaff.password) return;
-      const staffName = newStaff.name;
-      const staffRole = newStaff.role;
-      addStaff({ ...newStaff, baseCash: newStaff.baseCash === '' ? 0 : newStaff.baseCash, id: Date.now().toString(), active: true });
-      showToast('staff', 'El empleado ha sido creado exitosamente.', 'Colaborador Registrado');
-      setNewStaff({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: '', baseCash: 0 });
+    const handleAddStaff = async () => {
+      if (!newStaff.name || !newStaff.email || newStaff.password.length < 8 || newStaff.pin.length !== 4) return;
+      try {
+        await addStaff({ ...newStaff, baseCash: newStaff.baseCash === '' ? 0 : newStaff.baseCash, id: Date.now().toString(), active: true });
+        showToast('staff', 'El empleado ha sido creado exitosamente.', 'Colaborador Registrado');
+        setNewStaff({ name: '', role: 'Ayudante de cocina', email: '', password: '', phone: '', plate: '', vehicle: 'moto', vehicleModel: '', pin: '', baseCash: 0 });
+      } catch (err) {
+        const mensaje = err instanceof ApiError
+          ? (err.errors ? Object.values(err.errors)[0][0] : err.message)
+          : 'No se pudo crear el colaborador.';
+        showToast('danger', mensaje, 'No se Creó el Colaborador');
+      }
     };
 
-    const handleSoftDelete = (id: string) => {
-      const target = staff.find(s => s.id === id);
-      const name = target?.name || 'este colaborador';
+    // Recibe el empleado completo (no solo el id): id_ayudante e id_domiciliario
+    // son autoincrementales POR TABLA, asi que un Ayudante de cocina y un
+    // Domiciliario distintos pueden compartir el mismo numero de id. Volver a
+    // buscarlo con staff.find(s => s.id === id) podia encontrar al colaborador
+    // equivocado; con el objeto completo (y su role) no hay ambiguedad.
+    const handleSoftDelete = (emp: Staff) => {
       setConfirmModal({
         isOpen: true,
         title: 'Dar de Baja a Empleado',
-        message: `¿Estás seguro de revocar el acceso a "${name}"? Su cuenta quedará inactiva para iniciar sesión, pero se preservará su historial de turnos y entregas en el sistema.`,
+        message: `¿Estás seguro de revocar el acceso a "${emp.name}"? Su cuenta quedará inactiva para iniciar sesión, pero se preservará su historial de turnos y entregas en el sistema.`,
         confirmText: 'Sí, dar de baja',
         cancelText: 'Cancelar',
         type: 'warning',
-        onConfirm: () => {
-          updateStaff(id, { active: false });
-          showToast('warning', 'El acceso del empleado fue revocado.', 'Colaborador Dado de Baja');
-          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        onConfirm: async () => {
+          try {
+            await updateStaff(emp.id, { role: emp.role, active: false });
+            showToast('warning', 'El acceso del empleado fue revocado.', 'Colaborador Dado de Baja');
+          } catch (err) {
+            const mensaje = err instanceof ApiError ? err.message : 'No se pudo dar de baja al colaborador.';
+            showToast('danger', mensaje, 'No se Completó la Acción');
+          } finally {
+            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          }
         }
       });
     };
 
-    const handleHardDelete = (id: string) => {
-      const target = staff.find(s => s.id === id);
-      const name = target?.name || 'este colaborador';
+    const handleHardDelete = (emp: Staff) => {
       setConfirmModal({
         isOpen: true,
         title: 'Eliminar Empleado Permanentemente',
-        message: `¿Estás seguro de eliminar por completo el registro de "${name}"? Esta acción borrará permanentemente sus credenciales.`,
+        message: `¿Estás seguro de eliminar por completo el registro de "${emp.name}"? Esta acción borrará permanentemente sus credenciales.`,
         confirmText: 'Sí, eliminar',
         cancelText: 'Cancelar',
         type: 'danger',
-        onConfirm: () => {
-          deleteStaff(id);
-          showToast('danger', `Colaborador "${name}" eliminado definitivamente`, 'Gestión Humana');
-          setConfirmModal(prev => ({ ...prev, isOpen: false }));
+        onConfirm: async () => {
+          try {
+            await deleteStaff(emp.id, emp.role);
+            showToast('danger', `Colaborador "${emp.name}" eliminado definitivamente`, 'Gestión Humana');
+          } catch (err) {
+            const mensaje = err instanceof ApiError ? err.message : 'No se pudo eliminar al colaborador.';
+            showToast('danger', mensaje, 'No se Completó la Acción');
+          } finally {
+            setConfirmModal(prev => ({ ...prev, isOpen: false }));
+          }
         }
       });
     };
@@ -156,6 +177,20 @@ export default function StaffSection({
                     {showStaffPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                   </button>
                 </div>
+                <p className="text-xs text-gray-500 mt-1">Mínimo 8 caracteres.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">PIN de Perfil</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={newStaff.pin}
+                  onChange={e => setNewStaff({...newStaff, pin: e.target.value.replace(/\D/g, '').slice(0, 4)})}
+                  className="w-full px-5 py-3 rounded-full border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange focus:ring-2 focus:ring-brand-orange/20 transition-all tracking-widest"
+                  placeholder="Ej. 1234"
+                />
+                <p className="text-xs text-gray-500 mt-1">4 dígitos, distinto de la contraseña. Obligatorio: con él inicia sesión en su panel.</p>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Rol en el Establecimiento</label>
@@ -184,14 +219,27 @@ export default function StaffSection({
                     </div>
                     <div className="flex-1">
                       <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Vehículo</label>
-                      <input 
-                        type="text" 
-                        value={newStaff.vehicle || ''} 
-                        onChange={e => setNewStaff({...newStaff, vehicle: e.target.value})} 
-                        className="w-full px-5 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange transition-all" 
-                        placeholder="Ej. Moto Honda" 
+                      <CustomSelect
+                        value={newStaff.vehicle}
+                        onChange={(val) => setNewStaff({ ...newStaff, vehicle: val })}
+                        options={[
+                          { value: 'moto', label: 'Moto' },
+                          { value: 'bicicleta', label: 'Bicicleta' },
+                          { value: 'carro', label: 'Carro' },
+                          { value: 'a_pie', label: 'A pie' },
+                        ]}
                       />
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Marca y Modelo del Vehículo</label>
+                    <input
+                      type="text"
+                      value={newStaff.vehicleModel || ''}
+                      onChange={e => setNewStaff({...newStaff, vehicleModel: e.target.value})}
+                      className="w-full px-5 py-3 rounded-2xl border border-gray-200 dark:border-stone-700 bg-white dark:bg-stone-900 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-orange transition-all"
+                      placeholder="Ej. GIXXER 155 FI"
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-bold text-gray-700 dark:text-stone-300 mb-2">Base Efectivo Asignada</label>
@@ -209,9 +257,9 @@ export default function StaffSection({
                   </div>
                 </div>
               )}
-              <button 
-                onClick={handleAddStaff} 
-                disabled={!newStaff.name || !newStaff.email || !newStaff.password}
+              <button
+                onClick={handleAddStaff}
+                disabled={!newStaff.name || !newStaff.email || newStaff.password.length < 8 || newStaff.pin.length !== 4}
                 className="w-full bg-brand-orange text-white px-6 py-3.5 rounded-full font-bold hover:bg-brand-orange/90 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed mt-2"
               >
                 Crear Cuenta
@@ -288,9 +336,9 @@ export default function StaffSection({
                           <span className="px-3 py-1 bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-400 border border-red-200/50 dark:border-red-800/50 rounded-full text-[11px] font-bold tracking-wide uppercase">Inactivo</span>
                         )}
                         {emp.active ? (
-                          <button onClick={(e) => { e.stopPropagation(); handleSoftDelete(emp.id); }} className="text-red-400 hover:text-red-600 ml-4 font-bold text-sm px-3 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Dar de baja</button>
+                          <button onClick={(e) => { e.stopPropagation(); handleSoftDelete(emp); }} className="text-red-400 hover:text-red-600 ml-4 font-bold text-sm px-3 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Dar de baja</button>
                         ) : (
-                          <button onClick={(e) => { e.stopPropagation(); handleHardDelete(emp.id); }} className="text-red-600 hover:text-red-800 ml-4 font-bold text-sm px-3 py-1.5 rounded-lg bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">Eliminar Permanente</button>
+                          <button onClick={(e) => { e.stopPropagation(); handleHardDelete(emp); }} className="text-red-600 hover:text-red-800 ml-4 font-bold text-sm px-3 py-1.5 rounded-lg bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">Eliminar Permanente</button>
                         )}
                       </td>
                     </tr>
@@ -329,9 +377,9 @@ export default function StaffSection({
                   </div>
                   <div className="pt-2 border-t border-gray-200/50 dark:border-stone-800">
                     {emp.active ? (
-                      <button onClick={(e) => { e.stopPropagation(); handleSoftDelete(emp.id); }} className="w-full text-center text-red-500 font-bold text-sm py-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Dar de baja</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleSoftDelete(emp); }} className="w-full text-center text-red-500 font-bold text-sm py-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">Dar de baja</button>
                     ) : (
-                      <button onClick={(e) => { e.stopPropagation(); handleHardDelete(emp.id); }} className="w-full text-center text-red-600 font-bold text-sm py-2 rounded-xl bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">Eliminar Permanente</button>
+                      <button onClick={(e) => { e.stopPropagation(); handleHardDelete(emp); }} className="w-full text-center text-red-600 font-bold text-sm py-2 rounded-xl bg-red-100 dark:bg-red-900/40 hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors">Eliminar Permanente</button>
                     )}
                   </div>
                 </div>

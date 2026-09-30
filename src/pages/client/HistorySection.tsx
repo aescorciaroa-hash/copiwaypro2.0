@@ -1,9 +1,10 @@
 import { AnimatePresence, motion } from 'motion/react';
-import { Calendar, CheckCircle2, FileText, MapPin, RotateCcw, Search, ShoppingBag, Sparkles, Star, Truck, Wallet, X } from 'lucide-react';
+import { Calendar, CheckCircle2, FileText, MapPin, RotateCcw, Search, ShoppingBag, Sparkles, Star, Truck, User, Wallet, X } from 'lucide-react';
 
-import { formatCOP } from '../../lib/format';
-import { Order, StoreConfig } from '../../store/almacenAplicacion';
+import { formatCOP, orderCode, vehicleWithModel } from '../../lib/format';
+import { Order, Product, StoreConfig } from '../../store/almacenAplicacion';
 import { UserProfileState } from '../ClientDashboard';
+import { CustomBurgerThumb } from './ingredientArt';
 
 interface HistorySectionProps {
   orders: Order[];
@@ -29,13 +30,14 @@ interface HistorySectionProps {
   viewingReceiptOrder: Order | null;
   setViewingReceiptOrder: (order: Order | null) => void;
   storeConfig: StoreConfig;
+  catalog: Product[];
 }
 
 export default function HistorySection({
   orders, userProfile, historySearch, setHistorySearch, historyFilter, setHistoryFilter,
   setActiveTab, reviewingOrderId, setReviewingOrderId, reviewRating, setReviewRating,
   reviewHoverRating, setReviewHoverRating, reviewText, setReviewText, reviewTags, setReviewTags,
-  updateOrder, showToast, reorder, viewingReceiptOrder, setViewingReceiptOrder, storeConfig,
+  updateOrder, showToast, reorder, viewingReceiptOrder, setViewingReceiptOrder, storeConfig, catalog,
 }: HistorySectionProps) {
   const allDeliveredOrders = orders.filter(o => o.status === 'Entregado' || o.status === 'entregado');
   const historyList = allDeliveredOrders.length > 0 ? allDeliveredOrders : orders;
@@ -185,13 +187,13 @@ export default function HistorySection({
                   <div className="space-y-1">
                     <div className="flex items-center gap-3">
                       <span className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
-                        {order.id}
+                        {orderCode(order.id)}
                       </span>
                       <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1 border border-emerald-200 dark:border-emerald-800/40">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Entregado
                       </span>
                       <span className="px-2.5 py-1 rounded-full bg-gray-100 dark:bg-stone-800 text-gray-600 dark:text-stone-300 font-semibold text-[11px]">
-                        {order.paymentMethod === 'online' ? '💳 Pago Digital' : '💵 Efectivo'}
+                        {order.paymentMethod === 'online' ? `💳 ${order.digitalBank === 'nequi' ? 'Nequi' : order.digitalBank === 'daviplata' ? 'Daviplata' : order.digitalBank === 'bancolombia' ? 'Bancolombia' : 'Pago Digital'}` : '💵 Efectivo'}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-gray-500 font-medium">
@@ -303,7 +305,7 @@ export default function HistorySection({
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-bold text-brand-orange uppercase tracking-wider">
-                          ⭐ ¿Cómo estuvo tu pedido {order.id}?
+                          ⭐ ¿Cómo estuvo tu pedido {orderCode(order.id)}?
                         </span>
                         <button
                           onClick={() => { setReviewingOrderId(null); setReviewRating(0); setReviewText(''); setReviewTags([]); }}
@@ -477,7 +479,7 @@ export default function HistorySection({
                         Detalle del Pedido
                       </h3>
                       <span className="text-xs font-black px-2.5 py-0.5 rounded-full bg-brand-orange text-white">
-                        {viewingReceiptOrder.id}
+                        {orderCode(viewingReceiptOrder.id)}
                       </span>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
@@ -501,14 +503,16 @@ export default function HistorySection({
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">Estado del Pedido</span>
                     <span className={`text-xs font-bold px-3 py-1 rounded-full ${
-                      (viewingReceiptOrder.status as string) === 'delivered' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
-                      (viewingReceiptOrder.status as string) === 'on_way' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
-                      (viewingReceiptOrder.status as string) === 'in_prep' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
+                      viewingReceiptOrder.status === 'Entregado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400' :
+                      viewingReceiptOrder.status === 'En Camino' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400' :
+                      viewingReceiptOrder.status === 'En Preparación' ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400' :
+                      (viewingReceiptOrder.status as string) === 'Listos' || (viewingReceiptOrder.status as string) === 'Listo para Entregar' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-400' :
                       'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400'
                     }`}>
-                      {(viewingReceiptOrder.status as string) === 'delivered' ? '✓ Entregado' :
-                       (viewingReceiptOrder.status as string) === 'on_way' ? '🛵 En camino' :
-                       (viewingReceiptOrder.status as string) === 'in_prep' ? '👨‍🍳 En preparación' :
+                      {viewingReceiptOrder.status === 'Entregado' ? '✓ Entregado' :
+                       viewingReceiptOrder.status === 'En Camino' ? '🛵 En camino' :
+                       viewingReceiptOrder.status === 'En Preparación' ? '👨‍🍳 En preparación' :
+                       (viewingReceiptOrder.status as string) === 'Listos' || (viewingReceiptOrder.status as string) === 'Listo para Entregar' ? '📦 Listo' :
                        '📋 Recibido'}
                     </span>
                   </div>
@@ -529,12 +533,42 @@ export default function HistorySection({
                       <div>
                         <p className="font-bold text-gray-500 dark:text-stone-400 text-[11px]">Método de pago</p>
                         <p className="font-semibold text-gray-900 dark:text-white mt-0.5">
-                          {viewingReceiptOrder.paymentMethod === 'online' ? 'Pago Digital' : 'Efectivo al Entregar'}
+                          {viewingReceiptOrder.paymentMethod === 'online'
+                            ? (viewingReceiptOrder.digitalBank === 'nequi' ? 'Nequi' : viewingReceiptOrder.digitalBank === 'daviplata' ? 'Daviplata' : viewingReceiptOrder.digitalBank === 'bancolombia' ? 'Bancolombia' : 'Pago Digital')
+                            : 'Efectivo al Entregar'}
                         </p>
                       </div>
                     </div>
                   </div>
                 </div>
+
+                {/* Repartidor: solo informacion (nombre, vehiculo, estado) -- sin
+                    telefono ni WhatsApp, ese contacto es exclusivo del panel admin. */}
+                {(viewingReceiptOrder.driverName || viewingReceiptOrder.status === 'En Camino' || viewingReceiptOrder.status === 'Entregado') && (
+                  <div className="bg-gray-50 dark:bg-stone-900/60 rounded-2xl p-4 border border-gray-100 dark:border-stone-800/80">
+                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-3">Repartidor</span>
+                    {viewingReceiptOrder.driverName ? (
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-brand-orange text-white flex items-center justify-center font-bold text-sm shrink-0">
+                          {viewingReceiptOrder.driverName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-bold text-gray-900 dark:text-white text-sm truncate">{viewingReceiptOrder.driverName}</p>
+                          <p className="text-xs text-gray-500 dark:text-stone-400 mt-0.5">
+                            {vehicleWithModel(viewingReceiptOrder.driverVehicle) || 'En camino con tu pedido'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-2xl bg-gray-200 dark:bg-stone-800 text-gray-400 flex items-center justify-center shrink-0">
+                          <User className="w-5 h-5" />
+                        </div>
+                        <p className="text-sm font-semibold text-gray-500 dark:text-stone-400">Aún no se ha asignado un repartidor.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Items List */}
                 <div>
@@ -545,23 +579,37 @@ export default function HistorySection({
                   </div>
 
                   <div className="space-y-3">
-                    {(viewingReceiptOrder.items || []).map((it, iIdx: number) => (
+                    {(viewingReceiptOrder.items || []).map((it, iIdx: number) => {
+                      const catProduct = catalog.find(p => p.id === (it.productId || it.id) || p.name.toLowerCase() === (it.name || '').toLowerCase());
+                      const itemImage = it.product?.image || catProduct?.image;
+                      return (
                       <div
                         key={iIdx}
                         className="bg-white dark:bg-stone-900 p-4 rounded-2xl border border-gray-100 dark:border-stone-800 shadow-sm flex flex-col gap-2"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3">
-                            <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-stone-800 text-gray-900 dark:text-white font-black text-xs flex items-center justify-center shrink-0 mt-0.5">
-                              {it.quantity}x
-                            </span>
+                            <div className="w-11 h-11 rounded-xl bg-gray-100 dark:bg-stone-800 overflow-hidden shrink-0 relative">
+                              {itemImage ? (
+                                <img src={itemImage} alt={it.name} className="w-full h-full object-cover" />
+                              ) : it.extras && it.extras.length > 0 ? (
+                                <CustomBurgerThumb ingredientNames={it.extras.map(e => e.name)} size={44} className="!rounded-none border-0" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                  <ShoppingBag className="w-4 h-4 opacity-50" />
+                                </div>
+                              )}
+                              <span className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-brand-orange text-white text-[9px] font-black flex items-center justify-center ring-2 ring-white dark:ring-stone-900">
+                                {it.quantity}
+                              </span>
+                            </div>
                             <div>
                               <h5 className="font-bold text-gray-900 dark:text-white text-sm">
                                 {it.name}
                               </h5>
-                              {it.isCustom && (
+                              {it.name === 'Hamburguesa Personalizada' && (
                                 <span className="inline-block mt-1 text-[11px] font-bold text-brand-orange bg-brand-orange/10 px-2 py-0.5 rounded-md">
-                                  Hamburguesa Personalizada
+                                  Armada en el Creador Interactivo
                                 </span>
                               )}
                             </div>
@@ -587,13 +635,14 @@ export default function HistorySection({
                                 key={eI}
                                 className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40"
                               >
-                                + Extra {e.name}
+                                {it.name === 'Hamburguesa Personalizada' ? e.name : `+ Extra ${e.name}`}
                               </span>
                             ))}
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
